@@ -1,16 +1,28 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0f111a;
-  --foreground: #f8fafc;
+  --background: #080910;
+  --foreground: #f1f5f9;
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  overflow-x: hidden;
 }
 
-/* SVGアイコンのサイズが崩れないようにする安全策 */
-svg {
-  flex-shrink: 0;
+/* ネオンの光彩エフェクト */
+.neon-glow-pink {
+  box-shadow: 0 0 25px rgba(236, 72, 153, 0.35);
+}
+.neon-glow-cyan {
+  box-shadow: 0 0 25px rgba(6, 182, 212, 0.35);
+}
+
+/* グラスモーフィズム */
+.glass-panel {
+  background: rgba(22, 27, 46, 0.7);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }

@@ -1,186 +1,315 @@
 'use client';
 
 import { useState } from 'react';
+import RecordModal from '@/components/RecordModal';
+
+const CLASSES = [
+  'クラス 1',
+  'クラス 2',
+  'クラス 3',
+  'クラス 4',
+];
 
 export default function Home() {
   const [showWelcome, setShowWelcome] = useState(true);
+  const [showRecordModal, setShowRecordModal] = useState(false);
 
-  const [seasonInfo, setSeasonInfo] = useState({
-    name: 'Season 1',
-    isMeasuring: true, // ランク計測中
-    measuredMatches: 0,
+  const [currentRankData, setCurrentRankData] = useState({
+    rankName: 'ダイヤモンド',
+    classIndex: 0,
+    grains: 3,
+    season: 'Season 1',
     remainingDays: 80,
   });
 
   const [stats, setStats] = useState({
-    winRate: 0,
-    totalMatches: 0,
-    recordsCount: 0,
     wins: 0,
+    losses: 0,
+    draws: 0,
+    totalMatches: 0,
   });
 
+  const [matchLogs, setMatchLogs] = useState<any[]>([]);
+
+  const handleRecordSubmit = (recordData: any) => {
+    const { result, isBothAP } = recordData;
+
+    let newGrains = currentRankData.grains;
+    let newClassIndex = currentRankData.classIndex;
+    let actualResult = result;
+
+    if (result === 'DRAW' && isBothAP) {
+      actualResult = 'WIN (AP DRAW)';
+    }
+
+    if (actualResult === 'WIN' || actualResult === 'WIN (AP DRAW)') {
+      newGrains += 1;
+      if (newGrains >= 6) {
+        if (newClassIndex < CLASSES.length - 1) {
+          newClassIndex += 1;
+          newGrains = 1;
+        } else {
+          newGrains = 5;
+        }
+      }
+    } else if (result === 'LOSE') {
+      newGrains -= 1;
+      if (newGrains < 0) {
+        if (newClassIndex > 0) {
+          newClassIndex -= 1;
+          newGrains = 4;
+        } else {
+          newGrains = 0;
+        }
+      }
+    }
+
+    setCurrentRankData((prev) => ({
+      ...prev,
+      classIndex: newClassIndex,
+      grains: newGrains,
+    }));
+
+    setStats((prev) => {
+      const wins = prev.wins + (actualResult.includes('WIN') ? 1 : 0);
+      const losses = prev.losses + (result === 'LOSE' ? 1 : 0);
+      const draws = prev.draws + (result === 'DRAW' && !isBothAP ? 1 : 0);
+      const totalMatches = prev.totalMatches + 1;
+      return { wins, losses, draws, totalMatches };
+    });
+
+    setMatchLogs((prev) => [
+      { ...recordData, result: actualResult, id: Date.now() },
+      ...prev,
+    ]);
+  };
+
+  const winRate = stats.totalMatches > 0 ? ((stats.wins / stats.totalMatches) * 100).toFixed(1) : '0.0';
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6 relative">
-      {/* 1. 上部カード群 */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* シーズン・ランク計測状態カード (プロセカ風グラデーション) */}
-        <div className="lg:col-span-2 bg-gradient-to-br from-[#1e2238] to-[#16192b] border border-slate-800 text-white rounded-3xl p-7 shadow-xl relative overflow-hidden flex flex-col justify-between h-52">
-          <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-pink-500/10 rounded-full blur-2xl pointer-events-none"></div>
+    <div className="min-h-screen bg-[#080910] text-white selection:bg-pink-500 selection:text-white pb-16 pt-8 px-6">
+      {/* メインコンテンツエリア（ヘッダーなしですっきり表示） */}
+      <main className="max-w-6xl mx-auto space-y-8">
+        {/* 1. メインステージ・カード */}
+        <div className="glass-panel rounded-3xl p-8 relative overflow-hidden neon-glow-pink border border-white/10">
+          <div className="absolute -right-16 -top-16 w-64 h-64 bg-gradient-to-br from-pink-500/20 to-cyan-500/20 rounded-full blur-3xl pointer-events-none"></div>
 
-          <div className="flex justify-between items-center z-10">
-            <span className="bg-pink-500/20 border border-pink-500/30 text-pink-300 px-3.5 py-1 rounded-full text-xs font-semibold tracking-wide">
-              {seasonInfo.name}
-            </span>
-            <span className="text-xs text-slate-400 font-medium">
-              シーズン終了まで あと {seasonInfo.remainingDays} 日
-            </span>
-          </div>
-
-          <div className="z-10">
-            <h2 className="text-3xl font-extrabold tracking-wide mb-1 bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">
-              {seasonInfo.isMeasuring ? 'ランク計測中' : 'ダイヤモンド クラス2'}
-            </h2>
-            <p className="text-sm text-cyan-400 font-medium">
-              {seasonInfo.isMeasuring
-                ? `残りランク決めマッチ：あと ${3 - seasonInfo.measuredMatches} 試合`
-                : '3 粒 / 45 pt'}
-            </p>
-          </div>
-
-          <div className="z-10">
-            <div className="w-full bg-slate-900/80 rounded-full h-2.5 mb-2 overflow-hidden border border-slate-800">
-              <div
-                className="bg-gradient-to-r from-pink-500 to-purple-500 h-2.5 rounded-full transition-all"
-                style={{
-                  width: seasonInfo.isMeasuring
-                    ? `${(seasonInfo.measuredMatches / 3) * 100}%`
-                    : '60%',
-                }}
-              ></div>
-            </div>
-            <div className="flex justify-between text-xs text-slate-400">
-              <span>初期クラス決定戦</span>
-              <span className="text-slate-200 font-semibold">
-                {seasonInfo.isMeasuring
-                  ? `${seasonInfo.measuredMatches} / 3 完了`
-                  : 'クラス昇格まであと2勝'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* サマリーカード群 (勝率・試合数・記録数) */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-[#16192b] border border-slate-800 p-5 rounded-3xl shadow-xl flex flex-col justify-between col-span-2">
-            <span className="text-xs text-slate-400 font-medium">通算勝率</span>
-            <div className="text-center my-2">
-              <span className="text-4xl font-black text-cyan-400 tracking-tight">
-                {stats.winRate}%
-              </span>
-            </div>
-            <div className="flex justify-between text-xs text-slate-400 border-t pt-2.5 border-slate-800/80">
-              <span>勝利数</span>
-              <span className="font-bold text-slate-200">{stats.wins} 勝</span>
-            </div>
-          </div>
-
-          <div className="bg-[#16192b] border border-slate-800 p-4 rounded-3xl shadow-xl flex flex-col justify-center">
-            <span className="text-xs text-slate-400 block mb-1">総試合数</span>
-            <span className="text-xl font-black text-slate-200">
-              #{stats.totalMatches}
-            </span>
-          </div>
-
-          <div className="bg-[#16192b] border border-slate-800 p-4 rounded-3xl shadow-xl flex flex-col justify-center">
-            <span className="text-xs text-slate-400 block mb-1">記録データ</span>
-            <span className="text-xl font-black text-slate-200">
-              {stats.recordsCount} 件
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. シーズン一覧・現在の調子 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-[#16192b] border border-slate-800 p-5 rounded-3xl shadow-xl flex items-center justify-between cursor-pointer hover:border-slate-700 transition group">
-          <div className="flex items-center space-x-3.5">
-            <div className="bg-pink-500/10 text-pink-400 p-3 rounded-2xl border border-pink-500/20">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-              </svg>
-            </div>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative z-10">
             <div>
-              <span className="font-bold text-slate-200 block">シーズン一覧</span>
-              <span className="text-xs text-slate-400">過去の戦績やシーズン切替</span>
-            </div>
-          </div>
-          <span className="text-slate-500 group-hover:text-slate-300 transition">&gt;</span>
-        </div>
+              <div className="flex items-center space-x-3 mb-3">
+                <span className="bg-pink-500/20 text-pink-300 border border-pink-500/40 px-4 py-1 rounded-full text-xs font-bold tracking-widest uppercase">
+                  {currentRankData.season}
+                </span>
+                <span className="text-xs text-slate-400 font-medium">
+                  シーズン終了まで あと <span className="text-cyan-400 font-bold">{currentRankData.remainingDays}日</span>
+                </span>
+              </div>
 
-        <div className="bg-[#16192b] border border-slate-800 p-5 rounded-3xl shadow-xl">
-          <h3 className="text-xs font-semibold text-slate-400 mb-2 flex items-center space-x-1.5">
-            <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 9 0 0118 0z" />
-            </svg>
-            <span>現在のコンディション（直近の調子）</span>
-          </h3>
-          <p className="text-xs text-slate-500 mt-3">まだ対戦データが記録されていません</p>
-        </div>
-      </div>
-
-      {/* 3. 直近の対戦 */}
-      <div className="bg-[#16192b] border border-slate-800 p-6 rounded-3xl shadow-xl">
-        <h3 className="font-bold text-slate-200 mb-4 flex items-center justify-between">
-          <span>直近の対戦履歴</span>
-          <span className="text-xs text-slate-500 font-normal">最新5件</span>
-        </h3>
-        <div className="border-2 border-dashed border-slate-800 rounded-2xl p-12 text-center text-slate-500 text-sm">
-          まだ戦績の記録がありません。「+ 新規記録」から最初の試合を登録してみましょう！
-        </div>
-      </div>
-
-      {/* 4. 初めてのアクセス（ウェルカムモーダル） */}
-      {showWelcome && (
-        <div className="fixed inset-0 bg-[#0f111a]/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#16192b] border border-slate-800 rounded-3xl p-8 max-w-lg w-full shadow-2xl text-center space-y-6">
-            <div>
-              <h2 className="text-2xl font-extrabold bg-gradient-to-r from-pink-400 to-purple-400 bg-clip-text text-transparent mb-1">
-                ランクマレコードへようこそ！
+              <h2 className="text-4xl md:text-5xl font-black tracking-tight text-white mb-2 flex items-baseline space-x-3">
+                <span>{currentRankData.rankName}</span>
+                <span className="text-2xl text-cyan-400 font-bold">{CLASSES[currentRankData.classIndex]}</span>
               </h2>
-              <p className="text-xs text-slate-400">プロセカ ランクマッチ専用トラッカー</p>
+              <p className="text-xs text-slate-400">
+                5粒満タンからさらに1勝（6粒目）で昇格！ 次のクラスを目指そう
+              </p>
             </div>
 
-            <div className="space-y-4 text-left text-sm">
-              <div className="flex items-start space-x-4 bg-slate-900/50 p-3.5 rounded-2xl border border-slate-800">
-                <div className="bg-pink-500/20 text-pink-400 p-2.5 rounded-xl shrink-0 font-bold">1</div>
+            {/* 5粒インジケーター */}
+            <div className="bg-slate-900/80 border border-white/10 p-5 rounded-2xl flex flex-col items-center min-w-[240px]">
+              <span className="text-[11px] text-slate-400 mb-2 font-semibold uppercase tracking-wider">
+                現在のランク粒
+              </span>
+              <div className="flex space-x-2 mb-3">
+                {[1, 2, 3, 4, 5].map((num) => (
+                  <div
+                    key={num}
+                    className={`w-7 h-9 rounded-lg border flex items-center justify-center transition-all ${
+                      num <= currentRankData.grains
+                        ? 'bg-gradient-to-t from-pink-600 to-cyan-400 border-white/40 shadow-[0_0_12px_rgba(6,182,212,0.5)] scale-105'
+                        : 'bg-slate-800/80 border-slate-700/50'
+                    }`}
+                  >
+                    <span className={`text-xs font-bold ${num <= currentRankData.grains ? 'text-white' : 'text-slate-600'}`}>
+                      {num}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden border border-white/5">
+                <div
+                  className="bg-gradient-to-r from-cyan-400 to-pink-500 h-full transition-all duration-500"
+                  style={{ width: `${(Math.min(currentRankData.grains, 5) / 5) * 100}%` }}
+                ></div>
+              </div>
+              <div className="flex justify-between w-full text-[10px] text-slate-400 mt-1.5 font-mono">
+                <span>PROGRESS</span>
+                <span className="text-cyan-300 font-bold">{currentRankData.grains} / 5 粒 {currentRankData.grains === 5 && '(あと1勝で昇格)'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. スタッツ＆分析概要 */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+          <div className="glass-panel p-6 rounded-3xl md:col-span-2 flex flex-col justify-between border border-white/15">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">通算勝率 (WIN RATE)</span>
+            <div className="flex items-baseline space-x-4 my-4">
+              <span className="text-5xl font-black text-cyan-400 tracking-tighter">
+                {winRate}%
+              </span>
+              <span className="text-sm text-slate-400">
+                ({stats.wins}勝 / {stats.losses}敗 / {stats.draws}分)
+              </span>
+            </div>
+            <div className="w-full bg-slate-800/80 h-2.5 rounded-full overflow-hidden border border-white/5">
+              <div className="bg-gradient-to-r from-cyan-400 to-pink-500 h-full" style={{ width: `${winRate}%` }}></div>
+            </div>
+          </div>
+
+          <div className="glass-panel p-6 rounded-3xl flex flex-col justify-between border border-white/15">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">総対戦試合数</span>
+            <div className="my-3">
+              <span className="text-3xl font-black text-white">#{stats.totalMatches}</span>
+            </div>
+            <span className="text-[11px] text-slate-500">これまでのトータルマッチ</span>
+          </div>
+
+          <div className="glass-panel p-6 rounded-3xl flex flex-col justify-between border border-white/15">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">コンディション</span>
+            <div className="my-3">
+              <span className="text-sm font-bold text-pink-400">
+                {stats.totalMatches > 0 ? '対戦データ蓄積中' : '計測データ収集中'}
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-500">直近の連勝・連敗傾向</span>
+          </div>
+        </div>
+
+        {/* 3. 直近の対戦フィード */}
+        <div className="glass-panel p-8 rounded-3xl space-y-6 border border-white/15">
+          <div className="flex justify-between items-center">
+            <h3 className="font-extrabold text-lg text-white tracking-wide">直近の対戦ログ</h3>
+            <button
+              onClick={() => setShowRecordModal(true)}
+              className="bg-gradient-to-r from-pink-600 to-cyan-500 hover:from-pink-500 hover:to-cyan-400 text-white font-bold py-2 px-5 rounded-xl shadow-lg shadow-pink-600/20 text-xs transition transform hover:scale-105"
+            >
+              + 試合を記録する
+            </button>
+          </div>
+
+          {matchLogs.length === 0 ? (
+            <div className="border border-dashed border-white/10 rounded-2xl p-12 text-center text-slate-500 text-sm">
+              まだ対戦記録がありません。「+ 試合を記録する」から最初のスコアを刻みましょう！
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {matchLogs.map((log) => {
+                const scoreDiff = log.myScore - log.oppScore;
+                const diffText = scoreDiff > 0 ? `+${scoreDiff}` : `${scoreDiff}`;
+
+                return (
+                  <div key={log.id} className="bg-slate-900/60 border border-white/10 p-4 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div className="flex items-center space-x-4">
+                      <span
+                        className={`px-3 py-1 rounded-xl text-xs font-black tracking-wider shrink-0 ${
+                          log.result.includes('WIN')
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                            : log.result === 'LOSE'
+                            ? 'bg-pink-500/20 text-pink-300 border border-pink-500/40'
+                            : 'bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        {log.result}
+                      </span>
+                      <div>
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                          <h4 className="font-bold text-white text-sm">{log.songName || '無題の曲'}</h4>
+                          <span className="text-xs text-slate-400">({log.difficulty} Lv.{log.level})</span>
+                          {log.myIsAP && <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[9px] font-black px-1.5 py-0.5 rounded">AP</span>}
+                          {log.myIsFC && <span className="bg-pink-500/20 text-pink-300 border border-pink-500/40 text-[9px] font-black px-1.5 py-0.5 rounded">FC</span>}
+                          {log.isOpponentHigher && <span className="bg-orange-500/20 text-orange-300 border border-orange-500/40 text-[9px] font-black px-1.5 py-0.5 rounded">🔥 格上</span>}
+                          {log.isLifeZero && <span className="bg-red-500/20 text-red-300 border border-red-500/40 text-[9px] font-black px-1.5 py-0.5 rounded">❤️ ライフ0耐え</span>}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1 font-mono">
+                          自分: <span className="text-cyan-300 font-bold">{log.myScore} pt</span> vs 相手: <span className="text-pink-300 font-bold">{log.oppScore} pt</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 点差表示 */}
+                    <div className="flex items-center space-x-2 self-end md:self-auto bg-slate-950/60 px-3 py-1.5 rounded-xl border border-white/5 font-mono">
+                      <span className="text-[10px] text-slate-400 uppercase tracking-wider">点差:</span>
+                      <span
+                        className={`text-xs font-black ${
+                          scoreDiff > 0
+                            ? 'text-emerald-400'
+                            : scoreDiff < 0
+                            ? 'text-rose-400'
+                            : 'text-slate-300'
+                        }`}
+                      >
+                        {diffText} pt
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* 新規記録モーダル */}
+      <RecordModal
+        isOpen={showRecordModal}
+        onClose={() => setShowRecordModal(false)}
+        onSubmit={handleRecordSubmit}
+      />
+
+      {/* 初回ウェルカムモーダル（機能説明を復活） */}
+      {showWelcome && (
+        <div className="fixed inset-0 bg-[#080910]/85 backdrop-blur-xl z-50 flex items-center justify-center p-4">
+          <div className="glass-panel border border-white/15 rounded-3xl p-8 max-w-lg w-full shadow-2xl text-center space-y-6 neon-glow-cyan relative overflow-hidden">
+            <div className="absolute -left-20 -top-20 w-48 h-48 bg-pink-500/20 rounded-full blur-3xl pointer-events-none"></div>
+
+            <div>
+              <h2 className="text-2xl md:text-3xl font-black bg-gradient-to-r from-pink-400 via-purple-300 to-cyan-400 bg-clip-text text-transparent mb-1">
+                ランクマレコードへようこそ
+              </h2>
+              <p className="text-xs text-slate-400">プロセカ ランクマッチ専用レコードマネージャー</p>
+            </div>
+
+            <div className="space-y-3.5 text-left text-sm">
+              <div className="bg-white/5 p-4 rounded-2xl border border-white/5 flex items-start space-x-3.5">
+                <div className="bg-pink-500/20 text-pink-400 p-2.5 rounded-xl shrink-0 font-bold">01</div>
                 <div>
-                  <h4 className="font-bold text-slate-200">シーズンと現在のランクを設定</h4>
-                  <p className="text-xs text-slate-400 mt-0.5">現在のクラスやシーズン情報を確認・準備します。</p>
+                  <h4 className="font-bold text-white text-xs">クラス1〜4の昇格・降格</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">5粒満タンからさらに1勝（6粒目）でクラス昇格！</p>
                 </div>
               </div>
 
-              <div className="flex items-start space-x-4 bg-slate-900/50 p-3.5 rounded-2xl border border-slate-800">
-                <div className="bg-purple-500/20 text-purple-400 p-2.5 rounded-xl shrink-0 font-bold">2</div>
+              <div className="bg-white/5 p-4 rounded-2xl border border-white/5 flex items-start space-x-3.5">
+                <div className="bg-purple-500/20 text-purple-400 p-2.5 rounded-xl shrink-0 font-bold">02</div>
                 <div>
-                  <h4 className="font-bold text-slate-200">試合結果を簡単記録</h4>
-                  <p className="text-xs text-slate-400 mt-0.5">勝敗やボーナスを選ぶだけで、粒やポイントが自動計算されます。</p>
+                  <h4 className="font-bold text-white text-xs">AP/FC＆勝敗の完全自動計算</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">判定数からAP・FC、残りライフ、両方AP引き分けまで自動検知します。</p>
                 </div>
               </div>
 
-              <div className="flex items-start space-x-4 bg-slate-900/50 p-3.5 rounded-2xl border border-slate-800">
-                <div className="bg-cyan-500/20 text-cyan-400 p-2.5 rounded-xl shrink-0 font-bold">3</div>
+              <div className="bg-white/5 p-4 rounded-2xl border border-white/5 flex items-start space-x-3.5">
+                <div className="bg-cyan-500/20 text-cyan-400 p-2.5 rounded-xl shrink-0 font-bold">03</div>
                 <div>
-                  <h4 className="font-bold text-slate-200">戦績を深く分析</h4>
-                  <p className="text-xs text-slate-400 mt-0.5">勝率や得意曲の傾向を把握して、マスターランクを目指しましょう。</p>
+                  <h4 className="font-bold text-white text-xs">戦績の深い分析</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">勝率や対戦ログ、点差の分析からマスターランクへの道のりをサポート。</p>
                 </div>
               </div>
             </div>
 
             <button
               onClick={() => setShowWelcome(false)}
-              className="w-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-3.5 rounded-2xl transition shadow-lg shadow-pink-600/25"
+              className="w-full bg-gradient-to-r from-pink-600 to-cyan-500 hover:from-pink-500 hover:to-cyan-400 text-white font-black py-4 rounded-2xl transition shadow-lg shadow-pink-600/30 tracking-wider text-base"
             >
-              はじめる
+              RECORD START
             </button>
           </div>
         </div>

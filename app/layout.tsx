@@ -13,71 +13,44 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ja">
-      <body className="bg-[#0f111a] text-slate-100 min-h-screen flex selection:bg-pink-500 selection:text-white">
-        {/* 左側サイドバー（プロセカ風ダークテーマ） */}
-        <aside className="w-64 bg-[#16192b] border-r border-slate-800/80 p-6 flex flex-col justify-between shrink-0 min-h-screen fixed left-0 top-0 bottom-0 z-10 shadow-2xl">
-          <div>
-            <div className="flex items-center space-x-2 mb-10">
-              <div className="w-3 h-8 bg-gradient-to-b from-pink-500 to-purple-600 rounded-full"></div>
-              <h1 className="text-xl font-extrabold tracking-wider bg-gradient-to-r from-pink-400 via-purple-300 to-cyan-400 bg-clip-text text-transparent">
-                ランクマレコード
-              </h1>
-            </div>
+      <body className="min-h-screen selection:bg-pink-500 selection:text-white relative">
+        {/* 背景の近未来的なネオン装飾 */}
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-pink-600/15 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-cyan-600/15 rounded-full blur-3xl pointer-events-none"></div>
 
-            <nav className="space-y-1.5 font-medium text-sm">
-              <a
-                href="#"
-                className="flex items-center space-x-3 px-4 py-3 rounded-xl bg-pink-500/10 text-pink-400 font-semibold border border-pink-500/20 shadow-inner"
-              >
-                <svg className="w-5 h-5 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-                <span>ホーム</span>
-              </a>
-              <a
-                href="#"
-                className="flex items-center space-x-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 9 0 0118 0z" />
-                </svg>
-                <span>履歴</span>
-              </a>
-              <a
-                href="#"
-                className="flex items-center space-x-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-                <span>分析</span>
-              </a>
-            </nav>
+        {/* 上部ヘッダー（近未来ナビ） */}
+        <header className="sticky top-0 z-40 glass-panel border-b border-white/10 px-8 py-4 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-3.5 h-7 bg-gradient-to-b from-pink-500 to-cyan-400 rounded-full shadow-[0_0_12px_rgba(236,72,153,0.6)]"></div>
+            <h1 className="text-xl font-black tracking-wider bg-gradient-to-r from-pink-400 via-purple-300 to-cyan-400 bg-clip-text text-transparent">
+              ランクマレコード
+            </h1>
           </div>
 
-          <div>
-            <a
-              href="#"
-              className="flex items-center space-x-3 px-4 py-3 mb-6 rounded-xl text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition text-sm font-medium"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              <span>設定</span>
+          <nav className="hidden md:flex items-center space-x-1 font-medium text-sm">
+            <a href="#" className="px-5 py-2 rounded-xl bg-pink-500/15 text-pink-300 border border-pink-500/30 shadow-[0_0_15px_rgba(236,72,153,0.2)]">
+              ホーム
             </a>
+            <a href="#" className="px-5 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition">
+              履歴
+            </a>
+            <a href="#" className="px-5 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition">
+              分析
+            </a>
+            <a href="#" className="px-5 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition">
+              設定
+            </a>
+          </nav>
 
-            <button className="w-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-pink-600/20 transition flex items-center justify-center space-x-2">
-              <span className="text-xl leading-none">+</span>
-              <span>新規記録</span>
-            </button>
-          </div>
-        </aside>
+          <button className="bg-gradient-to-r from-pink-600 to-cyan-500 hover:from-pink-500 hover:to-cyan-400 text-white font-bold py-2.5 px-6 rounded-2xl shadow-lg shadow-pink-600/30 transition transform hover:scale-105">
+            + 新規記録
+          </button>
+        </header>
 
-        {/* メイン表示エリア */}
-        <div className="flex-1 ml-64 p-8 overflow-y-auto">
+        {/* メインコンテンツ */}
+        <main className="max-w-6xl mx-auto p-6 md:p-10 relative z-10">
           {children}
-        </div>
+        </main>
       </body>
     </html>
   );
