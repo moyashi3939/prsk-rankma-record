@@ -1,6 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+interface SongFromDB {
+  id: number;
+  song_name: string;
+  difficulty: string;
+  level: string;
+  total_notes: number;
+}
 
 interface RecordModalProps {
   isOpen: boolean;
@@ -8,167 +16,210 @@ interface RecordModalProps {
   onSubmit: (recordData: any) => void;
 }
 
+const initialFormState = {
+  songNameInput: '',
+  difficulty: 'MASTER',
+  level: '31',
+  isOpponentHigher: false,
+  myGreat: '',
+  myGood: '',
+  myBad: '',
+  myMiss: '',
+  oppGreat: '',
+  oppGood: '',
+  oppBad: '',
+  oppMiss: '',
+};
+
 export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalProps) {
-  const [matchForm, setMatchForm] = useState({
-    songName: '',
-    difficulty: 'EXPERT',
-    level: '26',
-    isOpponentHigher: false, // 格上フラグ（こちらは手動チェック）
-    // 自分の判定数
-    myPerf: '',
-    myGreat: '',
-    myGood: '',
-    myBad: '',
-    myMiss: '',
-    // 相手の判定数
-    oppPerf: '',
-    oppGreat: '',
-    oppGood: '',
-    oppBad: '',
-    oppMiss: '',
-  });
+  const [songs, setSongs] = useState<SongFromDB[]>([]);
+  const [matchForm, setMatchForm] = useState(initialFormState);
+
+  // フォーム初期化処理
+  const resetForm = () => {
+    setMatchForm(initialFormState);
+  };
+
+  // モーダルが開いたときにDBから楽曲データを取得
+  useEffect(() => {
+    if (isOpen) {
+      fetch('/api/songs')
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) setSongs(data);
+        })
+        .catch(() => {
+          setSongs([
+            { id: 1, song_name: 'フォニイ', difficulty: 'EXPERT', level: '26', total_notes: 850 },
+            { id: 2, song_name: 'フォニイ', difficulty: 'MASTER', level: '31', total_notes: 1420 },
+            { id: 3, song_name: '千本桜', difficulty: 'MASTER', level: '32', total_notes: 1550 },
+          ]);
+        });
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  // スコア計算式: パーフェクト3点、グレイト2点、グッド1点、バッド・ミス0点
-  const calculateScore = (perf: string, great: string, good: string) => {
-    const p = parseInt(perf) || 0;
-    const gr = parseInt(great) || 0;
-    const go = parseInt(good) || 0;
-    return p * 3 + gr * 2 + go * 1;
+  const handleClose = () => {
+    resetForm();
+    onClose();
   };
 
-  // ライフ自動計算 (初期1000, MISS=-80, BAD=-50)
-  const calculateLife = (badStr: string, missStr: string) => {
-    const bad = parseInt(badStr) || 0;
-    const miss = parseInt(missStr) || 0;
-    const damage = (miss * 80) + (bad * 50);
-    const remainingLife = 1000 - damage;
-    return {
-      remainingLife: Math.max(0, remainingLife),
-      isLifeZero: remainingLife <= 0,
-    };
-  };
+  const uniqueSongNames = Array.from(new Set(songs.map((s) => s.song_name)));
+  const availableSongsForCurrent = songs.filter((s) => s.song_name === matchForm.songNameInput);
+  const availableDifficulties = availableSongsForCurrent.map((s) => s.difficulty);
 
-  // AP / FC 自動判定ロジック
-  const checkComboStatus = (perfStr: string, grStr: string, goStr: string, bdStr: string, msStr: string) => {
-    const perf = parseInt(perfStr) || 0;
-    const gr = parseInt(grStr) || 0;
-    const go = parseInt(goStr) || 0;
-    const bd = parseInt(bdStr) || 0;
-    const ms = parseInt(msStr) || 0;
+  const currentSongDiffData = availableSongsForCurrent.find((s) => s.difficulty === matchForm.difficulty);
+  const totalNotes = currentSongDiffData ? currentSongDiffData.total_notes : 1000;
+  const currentLevel = currentSongDiffData ? currentSongDiffData.level : matchForm.level;
 
-    if (perf === 0 && gr === 0 && go === 0 && bd === 0 && ms === 0) {
-      return { isAP: false, isFC: false };
-    }
+  // ① 自分の判定数（PERFECT自動逆算）
+  const myGr = parseInt(matchForm.myGreat) || 0;
+  const myGo = parseInt(matchForm.myGood) || 0;
+  const myBd = parseInt(matchForm.myBad) || 0;
+  const myMs = parseInt(matchForm.myMiss) || 0;
+  const myCalculatedPerf = Math.max(0, totalNotes - (myGr + myGo + myBd + myMs));
 
-    const isAP = gr === 0 && go === 0 && bd === 0 && ms === 0 && perf > 0;
-    const isFC = !isAP && go === 0 && bd === 0 && ms === 0 && (perf > 0 || gr > 0);
+  // ② 相手の判定数（PERFECT自動逆算）
+  const oppGr = parseInt(matchForm.oppGreat) || 0;
+  const oppGo = parseInt(matchForm.oppGood) || 0;
+  const oppBd = parseInt(matchForm.oppBad) || 0;
+  const oppMs = parseInt(matchForm.oppMiss) || 0;
+  const oppCalculatedPerf = Math.max(0, totalNotes - (oppGr + oppGo + oppBd + oppMs));
 
-    return { isAP, isFC };
-  };
+  // スコア計算
+  const calculateScore = (perf: number, great: number, good: number) => perf * 3 + great * 2 + good * 1;
+  const myCalculatedScore = calculateScore(myCalculatedPerf, myGr, myGo);
+  const oppCalculatedScore = calculateScore(oppCalculatedPerf, oppGr, oppGo);
 
-  const myCalculatedScore = calculateScore(matchForm.myPerf, matchForm.myGreat, matchForm.myGood);
-  const oppCalculatedScore = calculateScore(matchForm.oppPerf, matchForm.oppGreat, matchForm.oppGood);
+  // ライフ自動計算
+  const myDamage = myMs * 80 + myBd * 50;
+  const myRemainingLife = Math.max(0, 1000 - myDamage);
+  const isLifeZero = myRemainingLife <= 0;
 
-  const myStatus = checkComboStatus(matchForm.myPerf, matchForm.myGreat, matchForm.myGood, matchForm.myBad, matchForm.myMiss);
-  const oppStatus = checkComboStatus(matchForm.oppPerf, matchForm.oppGreat, matchForm.oppGood, matchForm.oppBad, matchForm.oppMiss);
-
-  const myLifeStatus = calculateLife(matchForm.myBad, matchForm.myMiss);
+  // AP / FC 自動判定
+  const isAP = myGr === 0 && myGo === 0 && myBd === 0 && myMs === 0 && myCalculatedPerf > 0;
+  const isFC = !isAP && myGo === 0 && myBd === 0 && myMs === 0 && (myCalculatedPerf > 0 || myGr > 0);
+  const oppIsAP = oppGr === 0 && oppGo === 0 && oppBd === 0 && oppMs === 0 && oppCalculatedPerf > 0;
 
   // 自動勝敗判定
   let result: 'WIN' | 'LOSE' | 'DRAW' = 'DRAW';
-  if (myCalculatedScore > oppCalculatedScore) {
-    result = 'WIN';
-  } else if (myCalculatedScore < oppCalculatedScore) {
-    result = 'LOSE';
-  }
+  if (myCalculatedScore > oppCalculatedScore) result = 'WIN';
+  else if (myCalculatedScore < oppCalculatedScore) result = 'LOSE';
 
-  // 両方APフラグの自動判定
-  const isBothAP = result === 'DRAW' && myStatus.isAP && oppStatus.isAP;
+  const isBothAP = result === 'DRAW' && isAP && oppIsAP;
+
+  const handleSongInputChange = (value: string) => {
+    setMatchForm((prev) => ({ ...prev, songNameInput: value }));
+    const matched = songs.filter((s) => s.song_name === value);
+    if (matched.length > 0) {
+      setMatchForm((prev) => ({
+        ...prev,
+        songNameInput: value,
+        difficulty: matched[0].difficulty,
+        level: matched[0].level,
+      }));
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit({
       ...matchForm,
+      songName: matchForm.songNameInput,
+      difficulty: matchForm.difficulty,
+      level: currentLevel,
+      myPerf: myCalculatedPerf,
+      oppPerf: oppCalculatedPerf,
       myScore: myCalculatedScore,
       oppScore: oppCalculatedScore,
-      myIsAP: myStatus.isAP,
-      myIsFC: myStatus.isFC,
-      oppIsAP: oppStatus.isAP,
-      oppIsFC: oppStatus.isFC,
-      isLifeZero: myLifeStatus.isLifeZero, // 自動判定されたライフ0フラグを送信
+      myIsAP: isAP,
+      myIsFC: isFC,
+      isLifeZero,
       isBothAP,
       result,
     });
+    
+    // 保存後にフォームの入力をリセットして閉じる
+    resetForm();
     onClose();
   };
 
   return (
     <div className="fixed inset-0 bg-[#080910]/85 backdrop-blur-xl z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="glass-panel border border-white/15 rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl space-y-6 neon-glow-pink relative my-8">
-        <div className="flex justify-between items-center border-b border-white/10 pb-4">
+      <div className="glass-panel border border-white/15 rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl space-y-6 neon-glow-pink my-auto max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center border-b border-white/10 pb-4 sticky top-0 bg-[#080910]/90 backdrop-blur-md z-10 -mx-6 -mt-6 p-6 md:-mx-8 md:-mt-8 md:p-8">
           <h3 className="text-xl font-black text-white flex items-center space-x-2">
             <span className="w-2.5 h-6 bg-pink-500 rounded-full"></span>
-            <span>新規対戦レコード登録</span>
+            <span>新規対戦レコード登録（両者PERFECT自動逆算）</span>
           </h3>
           <button
-            onClick={onClose}
+            type="button"
+            onClick={handleClose}
             className="text-slate-400 hover:text-white text-lg font-bold px-2 py-1"
           >
             ✕
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6 text-sm">
-          {/* ① 画像アップロード用ボタン */}
-          <div className="bg-slate-900/60 p-4 rounded-2xl border border-white/10 text-center space-y-2">
-            <span className="text-xs font-bold text-slate-300 block">リザルト画像から自動読込 (任意)</span>
-            <label className="inline-block cursor-pointer bg-white/10 hover:bg-white/20 text-white font-semibold py-2.5 px-6 rounded-xl border border-white/20 transition text-xs">
-              📁 スクリーンショットを選択
-              <input type="file" accept="image/*" className="hidden" />
-            </label>
-            <p className="text-[10px] text-slate-500">※リザルト画像をアップロードして自動解析（モック）</p>
-          </div>
-
-          {/* ② 曲名・難易度・レベル */}
+        <form onSubmit={handleSubmit} className="space-y-6 text-sm pt-2">
+          {/* ① 曲名・難易度・レベル */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-1">
-              <label className="block text-xs font-semibold text-slate-300 mb-1">曲名</label>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">曲名 (サジェスト対応)</label>
               <input
                 type="text"
+                list="song-suggestions"
                 required
                 placeholder="例: フォニイ"
-                value={matchForm.songName}
-                onChange={(e) => setMatchForm({ ...matchForm, songName: e.target.value })}
-                className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-pink-500"
+                value={matchForm.songNameInput}
+                onChange={(e) => handleSongInputChange(e.target.value)}
+                className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-pink-500 text-xs"
               />
+              <datalist id="song-suggestions">
+                {uniqueSongNames.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">難易度</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">難易度 (自動絞込)</label>
               <select
                 value={matchForm.difficulty}
                 onChange={(e) => setMatchForm({ ...matchForm, difficulty: e.target.value })}
-                className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-pink-500"
+                className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-pink-500 text-xs"
               >
-                <option value="EXPERT">EXPERT</option>
-                <option value="MASTER">MASTER</option>
-                <option value="APPEND">APPEND</option>
+                {availableDifficulties.length > 0 ? (
+                  availableDifficulties.map((diff) => (
+                    <option key={diff} value={diff}>{diff}</option>
+                  ))
+                ) : (
+                  <>
+                    <option value="EXPERT">EXPERT</option>
+                    <option value="MASTER">MASTER</option>
+                    <option value="APPEND">APPEND</option>
+                  </>
+                )}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">レベル</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">レベル (自動入力)</label>
               <input
                 type="text"
-                placeholder="例: 31"
-                value={matchForm.level}
-                onChange={(e) => setMatchForm({ ...matchForm, level: e.target.value })}
-                className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-pink-500"
+                disabled
+                value={currentLevel}
+                className="w-full bg-slate-950/80 border border-white/10 rounded-xl px-4 py-2.5 text-cyan-400 font-bold text-center focus:outline-none cursor-not-allowed text-xs"
               />
             </div>
           </div>
 
-          {/* ③ 格上チェックオプション */}
+          {/* 総ノーツ数表示 */}
+          <div className="bg-gradient-to-r from-pink-500/10 via-purple-500/10 to-cyan-500/10 p-3 rounded-xl border border-white/10 flex justify-between items-center text-xs">
+            <span className="text-slate-300">曲の総ノーツ数: <strong className="text-white font-mono text-sm">{totalNotes}</strong></span>
+            <span className="text-cyan-400 font-semibold">※GREAT等を入力すると両者のPERFECTが自動逆算されます</span>
+          </div>
+
+          {/* ② 格上チェック */}
           <div className="bg-slate-900/40 p-4 rounded-2xl border border-white/5">
             <label className="flex items-center space-x-3 cursor-pointer bg-white/5 hover:bg-white/10 p-3 rounded-xl border border-white/5 transition">
               <input
@@ -181,33 +232,29 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
             </label>
           </div>
 
-          {/* ④ 自分のリザルト (判定数 & ライフ自動計算表示) */}
+          {/* ③ 自分のリザルト */}
           <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/5 space-y-3">
             <div className="flex justify-between items-center flex-wrap gap-2">
               <div className="flex items-center space-x-2">
                 <span className="font-bold text-cyan-400 text-xs tracking-wider">自分の判定数 ＆ スコア</span>
-                {myStatus.isAP && <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] font-black px-2 py-0.5 rounded-md">ALL PERFECT</span>}
-                {myStatus.isFC && <span className="bg-pink-500/20 text-pink-300 border border-pink-500/40 text-[10px] font-black px-2 py-0.5 rounded-md">FULL COMBO</span>}
-                {myLifeStatus.isLifeZero && <span className="bg-red-500/20 text-red-300 border border-red-500/40 text-[10px] font-black px-2 py-0.5 rounded-md">❤️ ライフ0耐え</span>}
+                {isAP && <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] font-black px-2 py-0.5 rounded-md">ALL PERFECT</span>}
+                {isFC && <span className="bg-pink-500/20 text-pink-300 border border-pink-500/40 text-[10px] font-black px-2 py-0.5 rounded-md">FULL COMBO</span>}
+                {isLifeZero && <span className="bg-red-500/20 text-red-300 border border-red-500/40 text-[10px] font-black px-2 py-0.5 rounded-md">❤️ ライフ0耐え</span>}
               </div>
               <div className="flex items-center space-x-3">
-                <span className="text-[11px] text-slate-400 font-mono">残ライフ: <span className={`font-bold ${myLifeStatus.isLifeZero ? 'text-red-400' : 'text-cyan-300'}`}>{myLifeStatus.remainingLife} / 1000</span></span>
+                <span className="text-[11px] text-slate-400 font-mono">残ライフ: <span className={`font-bold ${isLifeZero ? 'text-red-400' : 'text-cyan-300'}`}>{myRemainingLife} / 1000</span></span>
                 <span className="text-xs bg-cyan-500/20 text-cyan-300 px-3 py-1 rounded-full font-mono font-bold">
                   算出スコア: {myCalculatedScore} pt
                 </span>
               </div>
             </div>
+
             <div className="grid grid-cols-5 gap-2">
               <div>
-                <label className="block text-[10px] text-slate-400 mb-1">PERFECT (3pt)</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="0"
-                  value={matchForm.myPerf}
-                  onChange={(e) => setMatchForm({ ...matchForm, myPerf: e.target.value })}
-                  className="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-2 text-center text-white text-xs focus:outline-none focus:border-cyan-500"
-                />
+                <label className="block text-[10px] text-amber-400 mb-1">PERFECT (自動)</label>
+                <div className="w-full bg-slate-950 border border-amber-500/30 rounded-lg px-2 py-2 text-center text-amber-300 font-mono font-bold text-xs">
+                  {myCalculatedPerf}
+                </div>
               </div>
               <div>
                 <label className="block text-[10px] text-slate-400 mb-1">GREAT (2pt)</label>
@@ -256,13 +303,12 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
             </div>
           </div>
 
-          {/* ⑤ 相手のリザルト (判定数) */}
+          {/* ④ 相手のリザルト */}
           <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/5 space-y-3">
             <div className="flex justify-between items-center">
               <div className="flex items-center space-x-2">
                 <span className="font-bold text-pink-400 text-xs tracking-wider">相手のリザルト ＆ スコア</span>
-                {oppStatus.isAP && <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] font-black px-2 py-0.5 rounded-md">ALL PERFECT</span>}
-                {oppStatus.isFC && <span className="bg-pink-500/20 text-pink-300 border border-pink-500/40 text-[10px] font-black px-2 py-0.5 rounded-md">FULL COMBO</span>}
+                {oppIsAP && <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] font-black px-2 py-0.5 rounded-md">OPP ALL PERFECT</span>}
               </div>
               <span className="text-xs bg-pink-500/20 text-pink-300 px-3 py-1 rounded-full font-mono font-bold">
                 算出スコア: {oppCalculatedScore} pt
@@ -270,15 +316,10 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
             </div>
             <div className="grid grid-cols-5 gap-2">
               <div>
-                <label className="block text-[10px] text-slate-400 mb-1">PERFECT (3pt)</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="0"
-                  value={matchForm.oppPerf}
-                  onChange={(e) => setMatchForm({ ...matchForm, oppPerf: e.target.value })}
-                  className="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-2 text-center text-white text-xs focus:outline-none focus:border-pink-500"
-                />
+                <label className="block text-[10px] text-amber-400 mb-1">PERFECT (自動)</label>
+                <div className="w-full bg-slate-950 border border-amber-500/30 rounded-lg px-2 py-2 text-center text-amber-300 font-mono font-bold text-xs">
+                  {oppCalculatedPerf}
+                </div>
               </div>
               <div>
                 <label className="block text-[10px] text-slate-400 mb-1">GREAT (2pt)</label>
@@ -327,7 +368,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
             </div>
           </div>
 
-          {/* ⑥ 自動判定結果のプレビュー */}
+          {/* ⑤ プレビュー */}
           <div className="p-4 rounded-2xl border flex items-center justify-between bg-slate-900/80 border-white/10">
             <span className="text-xs text-slate-400 font-semibold">判定されるマッチ結果：</span>
             <span
@@ -349,11 +390,10 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
             </span>
           </div>
 
-          {/* 登録ボタン */}
           <div className="flex space-x-3 pt-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="w-1/3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition text-xs"
             >
               キャンセル

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -28,23 +29,26 @@ export default function RootLayout({
           </div>
 
           <nav className="hidden md:flex items-center space-x-1 font-medium text-sm">
-            <a href="#" className="px-5 py-2 rounded-xl bg-pink-500/15 text-pink-300 border border-pink-500/30 shadow-[0_0_15px_rgba(236,72,153,0.2)]">
+            <Link href="/" className="px-5 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition">
               ホーム
-            </a>
-            <a href="#" className="px-5 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition">
+            </Link>
+            <Link href="/history" className="px-5 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition">
               履歴
-            </a>
-            <a href="#" className="px-5 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition">
+            </Link>
+            <Link href="/analytics" className="px-5 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition">
               分析
-            </a>
-            <a href="#" className="px-5 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition">
+            </Link>
+            <Link href="/settings" className="px-5 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition">
               設定
-            </a>
+            </Link>
           </nav>
 
-          <button className="bg-gradient-to-r from-pink-600 to-cyan-500 hover:from-pink-500 hover:to-cyan-400 text-white font-bold py-2.5 px-6 rounded-2xl shadow-lg shadow-pink-600/30 transition transform hover:scale-105">
-            + 新規記録
-          </button>
+          <Link
+            href="/"
+            className="bg-gradient-to-r from-pink-600 to-cyan-500 hover:from-pink-500 hover:to-cyan-400 text-white font-bold py-2.5 px-6 rounded-2xl shadow-lg shadow-pink-600/30 transition transform hover:scale-105 text-sm"
+          >
+            ホームへ
+          </Link>
         </header>
 
         {/* メインコンテンツ */}
