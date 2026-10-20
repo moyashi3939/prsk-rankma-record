@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { requireAdmin } from '@/lib/admin';
 
 async function ensureSeasonTable() {
   await query(`
@@ -15,6 +16,9 @@ async function ensureSeasonTable() {
 }
 
 export async function GET() {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
   try {
     await ensureSeasonTable();
     const result = await query('SELECT * FROM seasons ORDER BY start_time ASC');
@@ -26,6 +30,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
   try {
     await ensureSeasonTable();
     const body = await request.json();
@@ -74,6 +81,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
   try {
     await ensureSeasonTable();
     const { searchParams } = new URL(request.url);

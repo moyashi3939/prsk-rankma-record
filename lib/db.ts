@@ -21,3 +21,8 @@ export async function query(text: string, params?: any[]) {
     client.release();
   }
 }
+
+// トランザクション用に、1本の接続を専有して使う場合はこちら（使い終わったら release() すること）
+export async function getClient() {
+  return getPool().connect();
+}

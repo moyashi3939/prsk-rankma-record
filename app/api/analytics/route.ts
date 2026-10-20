@@ -1,9 +1,15 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { ensureOwnerColumns } from '@/lib/schema';
+import { getOwnerId } from '@/lib/session';
 
 export async function GET() {
   try {
-    const matchesResult = await query('SELECT * FROM matches ORDER BY id ASC');
+    await ensureOwnerColumns();
+    const owner = await getOwnerId();
+
+    // 自分の対戦記録だけを集計する
+    const matchesResult = await query('SELECT * FROM matches WHERE owner_id = $1 ORDER BY id ASC', [owner]);
     const matches = matchesResult.rows;
 
     const totalMatches = matches.length;

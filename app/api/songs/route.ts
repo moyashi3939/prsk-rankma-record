@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { requireAdmin } from '@/lib/admin';
 
 // 楽曲一覧の取得
 export async function GET() {
@@ -14,6 +15,9 @@ export async function GET() {
 
 // 楽曲の登録・更新（存在チェックをしてからINSERT or UPDATEする安全な方式）
 export async function POST(request: Request) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
   try {
     const body = await request.json();
     const { songName, difficulties } = body;
@@ -54,5 +58,25 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('楽曲登録エラー:', error);
     return NextResponse.json({ error: 'Failed to save song' }, { status: 500 });
+  }
+}
+
+// 楽曲の削除（管理者のみ）。body: { ids: number[] }
+// CSVの読み取りミスなどで入ってしまった壊れたデータを、管理者画面から消すのに使う
+export async function DELETE(request: Request) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
+  try {
+    const { ids } = await request.json();
+    if (!Array.isArray(ids) || ids.length === 0 || !ids.every((v) => Number.isInteger(v))) {
+      return NextResponse.json({ error: 'ids is required' }, { status: 400 });
+    }
+
+    const res = await query('DELETE FROM songs WHERE id = ANY($1::int[])', [ids]);
+    return NextResponse.json({ success: true, deleted: res.rowCount ?? 0 });
+  } catch (error) {
+    console.error('楽曲削除エラー:', error);
+    return NextResponse.json({ error: 'Failed to delete songs' }, { status: 500 });
   }
 }

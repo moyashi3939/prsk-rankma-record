@@ -1,8 +1,10 @@
 // app/api/rank/route.ts
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { ensureOwnerColumns } from '@/lib/schema';
+import { getOwnerId } from '@/lib/session';
 
-// DBの行オブジェクトをキャメルケースに変換するヘルパー関数
+// DBの行オブジェクトをフロントエンド用に変換するヘルパー関数
 function formatRankStatus(row: any) {
   if (!row) return null;
   return {
@@ -17,19 +19,36 @@ function formatRankStatus(row: any) {
   };
 }
 
-// 現在のランク・シーズン状態を取得
+// 新規ユーザーの初期シーズン（開催中のシーズンがあればそれ、なければ Season 1）
+async function defaultSeason(): Promise<string> {
+  try {
+    const res = await query('SELECT season_name FROM seasons WHERE is_current = TRUE LIMIT 1');
+    return res.rows[0]?.season_name || 'Season 1';
+  } catch {
+    return 'Season 1';
+  }
+}
+
+// 自分の現在のランク状態を取得
 export async function GET() {
   try {
-    let result = await query('SELECT * FROM rank_status ORDER BY id DESC LIMIT 1');
-    
-    // まだレコードがなければ初期データを作成
+    await ensureOwnerColumns();
+    const owner = await getOwnerId();
+
+    let result = await query(
+      'SELECT * FROM rank_status WHERE owner_id = $1 ORDER BY id DESC LIMIT 1',
+      [owner]
+    );
+
+    // まだ自分のレコードがなければ初期データを作成
     if (result.rows.length === 0) {
-      const defaultInsert = await query(`
-        INSERT INTO rank_status (season_id, rank_name, class_index, grains, placement_matches_played, is_placement_completed)
-        VALUES ('Season 1', '判定マッチ', 0, 0, 0, FALSE)
-        RETURNING *;
-      `);
-      result = defaultInsert;
+      await query(
+        `INSERT INTO rank_status (owner_id, season_id, rank_name, class_index, grains, placement_matches_played, is_placement_completed)
+         VALUES ($1, $2, '判定マッチ', 0, 0, 0, FALSE)
+         ON CONFLICT (owner_id) DO NOTHING`,
+        [owner, await defaultSeason()]
+      );
+      result = await query('SELECT * FROM rank_status WHERE owner_id = $1 ORDER BY id DESC LIMIT 1', [owner]);
     }
 
     return NextResponse.json(formatRankStatus(result.rows[0]));
@@ -39,35 +58,45 @@ export async function GET() {
   }
 }
 
-// ランク状態・シーズンの更新
+// 自分のランク状態の更新
 export async function POST(request: Request) {
   try {
+    await ensureOwnerColumns();
+    const owner = await getOwnerId();
+
     const body = await request.json();
     const { seasonId, rankName, classIndex, grains, placementMatchesPlayed, isPlacementCompleted } = body;
 
-    // 既存のステータスを更新（なければINSERT）
-    const check = await query('SELECT id FROM rank_status LIMIT 1');
-    
-    let res;
-    if (check.rows.length > 0) {
-      res = await query(`
-        UPDATE rank_status 
-        SET season_id = COALESCE($1, season_id),
-            rank_name = COALESCE($2, rank_name),
-            class_index = COALESCE($3, class_index),
-            grains = COALESCE($4, grains),
-            placement_matches_played = COALESCE($5, placement_matches_played),
-            is_placement_completed = COALESCE($6, is_placement_completed),
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $7
-        RETURNING *;
-      `, [seasonId, rankName, classIndex, grains, placementMatchesPlayed, isPlacementCompleted, check.rows[0].id]);
-    } else {
-      res = await query(`
-        INSERT INTO rank_status (season_id, rank_name, class_index, grains, placement_matches_played, is_placement_completed)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING *;
-      `, [seasonId || 'Season 1', rankName || '判定マッチ', classIndex || 0, grains || 0, placementMatchesPlayed || 0, isPlacementCompleted || false]);
+    // まず更新を試し、自分のレコードがなければ INSERT
+    let res = await query(
+      `UPDATE rank_status 
+       SET season_id = COALESCE($1, season_id),
+           rank_name = COALESCE($2, rank_name),
+           class_index = COALESCE($3, class_index),
+           grains = COALESCE($4, grains),
+           placement_matches_played = COALESCE($5, placement_matches_played),
+           is_placement_completed = COALESCE($6, is_placement_completed),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE owner_id = $7
+       RETURNING *;`,
+      [seasonId, rankName, classIndex, grains, placementMatchesPlayed, isPlacementCompleted, owner]
+    );
+
+    if (res.rows.length === 0) {
+      res = await query(
+        `INSERT INTO rank_status (owner_id, season_id, rank_name, class_index, grains, placement_matches_played, is_placement_completed)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *;`,
+        [
+          owner,
+          seasonId || (await defaultSeason()),
+          rankName || '判定マッチ',
+          classIndex || 0,
+          grains || 0,
+          placementMatchesPlayed || 0,
+          isPlacementCompleted || false,
+        ]
+      );
     }
 
     return NextResponse.json({ success: true, rankStatus: formatRankStatus(res.rows[0]) });

@@ -154,6 +154,30 @@ export default function Home() {
     }
   };
 
+  // 🗑️ 各レコードの個別削除処理（/api/matches の DELETE を呼ぶ）
+  const handleDeleteRecord = async (recordId: number) => {
+    if (!confirm('この対戦記録を削除しますか？\n（増減した粒やポイントも自動で巻き戻されます）')) return;
+
+    try {
+      const res = await fetch('/api/matches', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId }),
+      });
+
+      if (res.ok) {
+        alert('レコードを削除し、粒を調整しました。');
+        window.location.reload(); // 最新状態に反映するため再読み込み
+      } else {
+        const data = await res.json();
+        alert(`削除失敗: ${data.error || '不明なエラー'}`);
+      }
+    } catch (err) {
+      console.error('削除通信エラー:', err);
+      alert('通信エラーが発生しました。');
+    }
+  };
+
   const winRate = stats.totalMatches > 0 ? ((stats.wins / stats.totalMatches) * 100).toFixed(1) : '0.0';
   const isMaster = rankData.rankName === 'マスター';
   const isPlacement = !rankData.isPlacementCompleted;
@@ -300,9 +324,21 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2 self-end md:self-auto bg-slate-950/60 px-3 py-1.5 rounded-xl border border-white/5 font-mono">
-                      <span className="text-[10px] text-slate-400 uppercase tracking-wider">点差:</span>
-                      <span className={`text-xs font-black ${scoreDiff > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{diffText} pt</span>
+                    <div className="flex items-center space-x-3 self-end md:self-auto">
+                      <div className="bg-slate-950/60 px-3 py-1.5 rounded-xl border border-white/5 font-mono">
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wider">点差:</span>
+                        <span className={`text-xs font-black ml-1 ${scoreDiff > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{diffText} pt</span>
+                      </div>
+                      
+                      {/* 🗑️ 削除ボタン */}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRecord(log.id)}
+                        className="bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 p-2 rounded-xl text-xs transition"
+                        title="この記録を削除する"
+                      >
+                        🗑️
+                      </button>
                     </div>
                   </div>
                 );

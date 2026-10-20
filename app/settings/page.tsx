@@ -8,6 +8,8 @@ export default function SettingsPage() {
     userName: '',
     customId: '',
     userId: '',
+    userEmail: '',
+    isAdmin: false,
   });
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -15,6 +17,9 @@ export default function SettingsPage() {
   const [followingList, setFollowingList] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+
+  // ゲスト向けクラウド保存用 State
+  const [cloudKey, setCloudKey] = useState('');
 
   useEffect(() => {
     fetch('/api/settings')
@@ -25,6 +30,21 @@ export default function SettingsPage() {
       .catch((err) => console.error('設定ロードエラー:', err));
 
     fetchFollowing();
+
+    // Googleログイン後のリダイレクト結果を表示
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('login') === 'success') {
+      setMessage('✅ Googleアカウントでログインしました！');
+    } else if (params.get('error')) {
+      setMessage(
+        params.get('error') === 'auth_failed'
+          ? '❌ Googleログインに失敗しました（キャンセル、またはリダイレクトURIの設定を確認してください）。'
+          : '❌ ログイン処理中にサーバーエラーが発生しました。'
+      );
+    }
+    if (params.has('login') || params.has('error')) {
+      window.history.replaceState(null, '', '/settings');
+    }
   }, []);
 
   const fetchFollowing = () => {
@@ -57,6 +77,84 @@ export default function SettingsPage() {
       setMessage('❌ 通信エラーが発生しました。');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Google認証によるログイン・アカウント登録
+  const handleGoogleLogin = () => {
+    window.location.href = '/api/auth/google';
+  };
+
+  // ログアウト処理
+  const handleLogout = async () => {
+    if (!confirm('ログアウトしますか？')) return;
+
+    try {
+      const res = await fetch('/api/auth/logout', { method: 'POST' });
+      if (res.ok) {
+        alert('ログアウトしました。');
+        window.location.reload();
+      }
+    } catch (err) {
+      alert('ログアウト処理中にエラーが発生しました。');
+    }
+  };
+
+  // クラウドへデータを保存 (ゲスト・バックアップ用)
+  const handleCloudSave = async () => {
+    if (!cloudKey.trim()) {
+      alert('任意の合言葉（引き継ぎコード）を入力してください。');
+      return;
+    }
+
+    try {
+      const backupData = { settings, savedAt: new Date() };
+      const res = await fetch('/api/cloud/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ saveKey: cloudKey.trim(), backupData }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        alert('☁️ クラウドへデータを正常に保存しました！この合言葉で他の端末から復元できます。');
+      } else {
+        alert(`保存失敗: ${data.error}`);
+      }
+    } catch (err) {
+      alert('クラウド保存中に通信エラーが発生しました。');
+    }
+  };
+
+  // クラウドからデータを読み込み (復元用)
+  const handleCloudLoad = async () => {
+    if (!cloudKey.trim()) {
+      alert('保存した合言葉（引き継ぎコード）を入力してください。');
+      return;
+    }
+
+    if (!confirm('クラウドからデータを読み込むと、現在のローカルデータが上書きされます。よろしいですか？')) return;
+
+    try {
+      const res = await fetch(`/api/cloud/sync?key=${encodeURIComponent(cloudKey.trim())}`);
+      const data = await res.json();
+
+      if (res.ok && data.data) {
+        if (data.data.settings) {
+          setSettings(data.data.settings);
+          await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data.data.settings),
+          });
+        }
+        alert('📂 クラウドからデータを正常に復元しました！');
+        window.location.reload();
+      } else {
+        alert('指定された合言葉のバックアップデータが見つかりませんでした。');
+      }
+    } catch (err) {
+      alert('クラウド読み込み中に通信エラーが発生しました。');
     }
   };
 
@@ -103,6 +201,10 @@ export default function SettingsPage() {
       if (res.ok) {
         alert('データを初期化しました。');
         window.location.href = '/';
+      } else {
+        // 失敗したときも画面で分かるようにする
+        const data = await res.json().catch(() => ({}));
+        alert(`初期化に失敗しました（${res.status}）${data.error ? '：' + data.error : ''}\nターミナルのログを確認してください。`);
       }
     } catch (err) {
       alert('エラーが発生しました。');
@@ -117,15 +219,17 @@ export default function SettingsPage() {
             <h1 className="text-3xl font-black bg-gradient-to-r from-pink-400 via-purple-300 to-cyan-400 bg-clip-text text-transparent">
               USER SETTINGS
             </h1>
-            <p className="text-xs text-slate-400 mt-1">プロフィール設定・フレンド管理</p>
+            <p className="text-xs text-slate-400 mt-1">プロフィール設定・アカウント連携・フレンド管理</p>
           </div>
           <div className="flex gap-2">
-            <Link
-              href="/admin/home"
-              className="bg-purple-900/40 hover:bg-purple-900/60 text-purple-300 border border-purple-500/40 font-bold px-4 py-2 rounded-xl text-xs transition"
-            >
-              👑 管理者ホームへ
-            </Link>
+            {settings.isAdmin && (
+              <Link
+                href="/admin/home"
+                className="bg-purple-900/40 hover:bg-purple-900/60 text-purple-300 border border-purple-500/40 font-bold px-4 py-2 rounded-xl text-xs transition"
+              >
+                👑 管理者ホームへ
+              </Link>
+            )}
             <Link href="/" className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-xl text-xs transition">
               ← ホームに戻る
             </Link>
@@ -138,6 +242,53 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* 🌐 アカウント連携 / ログイン・ログアウト セクション */}
+        <div className="glass-panel p-6 rounded-3xl border border-cyan-500/30 bg-cyan-950/10 space-y-4">
+          <h3 className="text-lg font-black text-cyan-400 flex items-center space-x-2">
+            <span>🌐 アカウント連携 (マルチデバイス同期)</span>
+          </h3>
+
+          {settings.userEmail ? (
+            /* ログイン済み表示 */
+            <div className="space-y-3">
+              <p className="text-xs text-slate-300">
+                現在、Googleアカウントでログインしています。どの端末からアクセスしてもデータが自動同期されます。
+              </p>
+              <div className="p-4 rounded-2xl bg-slate-900/80 border border-white/10 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-mono">ログイン中のアカウント</span>
+                    <span className="text-sm font-bold text-white font-mono">{settings.userEmail}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/40 font-bold px-5 py-2 rounded-xl text-xs transition shrink-0"
+                >
+                  ログアウト
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* 未ログイン表示 */
+            <div className="space-y-3">
+              <p className="text-xs text-slate-400">
+                Googleアカウントでログイン・新規登録すると、どの端末やブラウザからでもあなたの戦績データやプロフィールにアクセスできます。
+              </p>
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-6 py-3 rounded-xl text-xs transition shadow-lg shadow-cyan-600/20 flex items-center gap-2"
+              >
+                <span>🌐 Googleアカウントでログイン / アカウント登録</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 👤 プレイヤープロフィール設定 */}
         <form onSubmit={handleSave} className="space-y-6">
           <div className="glass-panel p-6 rounded-3xl border border-white/10 space-y-4">
             <h3 className="text-lg font-black text-pink-400 flex items-center space-x-2">
@@ -190,7 +341,48 @@ export default function SettingsPage() {
           </div>
         </form>
 
-        {/* フォロー中のプレイヤー一覧 */}
+        {/* ☁️ ゲスト向けクラウドデータ管理 (引き継ぎ) セクション */}
+        <div className="glass-panel p-6 rounded-3xl border border-purple-500/30 bg-purple-950/10 space-y-4">
+          <h3 className="text-lg font-black text-purple-400 flex items-center space-x-2">
+            <span>☁️ ゲスト向け クラウドデータ保存・読み込み</span>
+          </h3>
+          <p className="text-xs text-slate-400">
+            ログインせずに利用しているゲストの方も、任意の合言葉（引き継ぎコード）を設定してクラウドにデータを保存・復元できます。
+          </p>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">クラウド保存用の合言葉（引き継ぎコード）</label>
+              <input
+                type="text"
+                value={cloudKey}
+                onChange={(e) => setCloudKey(e.target.value)}
+                placeholder="例: my-secret-code-2026"
+                className="w-full md:w-1/2 bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-purple-300 font-mono text-xs focus:border-purple-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handleCloudSave}
+                className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition shadow-md"
+              >
+                ☁️ クラウドへデータを保存
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCloudLoad}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2.5 rounded-xl text-xs transition"
+              >
+                📂 クラウドからデータを読み込み
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 👥 フォロー中のプレイヤー一覧 */}
         {followingList.length > 0 && (
           <div className="glass-panel p-6 rounded-3xl border border-white/10 space-y-4">
             <h3 className="text-lg font-black text-purple-400 flex items-center space-x-2">
@@ -229,7 +421,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* プレイヤー検索 & フォローセクション */}
+        {/* 🔍 プレイヤー検索 & フォローセクション */}
         <div className="glass-panel p-6 rounded-3xl border border-white/10 space-y-4">
           <h3 className="text-lg font-black text-cyan-400 flex items-center space-x-2">
             <span>🔍 プレイヤー検索 ＆ フォロー</span>
@@ -258,7 +450,9 @@ export default function SettingsPage() {
                 <div key={idx} className="bg-slate-900/90 p-4 rounded-2xl border border-white/5 space-y-2">
                   <div className="flex justify-between items-center">
                     <div>
-                      <div className="text-sm font-bold text-white">{user.user_name} <span className="text-cyan-400 font-mono text-xs">@{user.custom_id}</span></div>
+                      <div className="text-sm font-bold text-white">
+                        {user.user_name} <span className="text-cyan-400 font-mono text-xs">@{user.custom_id}</span>
+                      </div>
                       <div className="text-[10px] text-slate-400 font-mono">プロセカID: {user.userId || '未設定'}</div>
                     </div>
                     <button
@@ -286,7 +480,7 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* 危険領域 */}
+        {/* ⚠️ 危険領域 */}
         <div className="glass-panel p-6 rounded-3xl border border-rose-500/30 bg-rose-950/10 space-y-4 mt-12">
           <h3 className="text-lg font-black text-rose-400 flex items-center space-x-2">
             <span>⚠️ 危険領域 (データ初期化)</span>
