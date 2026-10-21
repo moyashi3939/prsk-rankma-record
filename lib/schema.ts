@@ -54,6 +54,15 @@ export function ensureOwnerColumns(): Promise<void> {
       await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS owner_id VARCHAR(255)`);
       // 1ユーザーにつきランク状態は1行（NULL の旧データは重複してもOK）
       await query(`CREATE UNIQUE INDEX IF NOT EXISTS rank_status_owner_uidx ON rank_status (owner_id)`);
+
+      // 「最初の状態」を覚えておくためのカラム（対戦履歴を削除したとき、最初から計算し直すのに使う）
+      await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS setup_done BOOLEAN DEFAULT FALSE`); // 最初の状態を選び終わったか
+      await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS baseline_known BOOLEAN DEFAULT FALSE`); // 最初の状態が分かっているか
+      await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS start_rank_name TEXT`); // NULL = 判定マッチから開始
+      await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS start_class_index INT DEFAULT 0`);
+      await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS start_grains INT DEFAULT 0`);
+      await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS placement_rank_name TEXT`); // 判定マッチのあとに選んだランク
+      await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS placement_class_index INT`);
     })().catch((err) => {
       ownerColumnsEnsured = null;
       throw err;
@@ -118,4 +127,50 @@ export function ensureSongJackets(): Promise<void> {
     });
   }
   return songJacketsEnsured;
+}
+
+// 新しく作るランク状態の初期シーズン（開催中のシーズンがあればそれ、なければ Season 1）
+export async function getDefaultSeason(): Promise<string> {
+  try {
+    const res = await query('SELECT season_name FROM seasons WHERE is_current = TRUE LIMIT 1');
+    return res.rows[0]?.season_name || 'Season 1';
+  } catch {
+    return 'Season 1';
+  }
+}
+
+// iOSショートカット連携用のテーブル
+//  api_tokens        … アカウントごとのトークン（ハッシュだけを保存。1アカウントにつき1つ）
+//  shortcut_uploads  … ショートカットから届いた画像の受信箱（アプリで取り込んで保存したら消える）
+let shortcutTablesEnsured: Promise<void> | null = null;
+
+export function ensureShortcutTables(): Promise<void> {
+  if (!shortcutTablesEnsured) {
+    shortcutTablesEnsured = (async () => {
+      await query(`
+        CREATE TABLE IF NOT EXISTS api_tokens (
+          id SERIAL PRIMARY KEY,
+          owner_id VARCHAR(255) NOT NULL UNIQUE,
+          token_hash VARCHAR(64) NOT NULL UNIQUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          last_used_at TIMESTAMP
+        );
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS shortcut_uploads (
+          id SERIAL PRIMARY KEY,
+          owner_id VARCHAR(255) NOT NULL,
+          mime VARCHAR(50) NOT NULL,
+          image BYTEA NOT NULL,
+          size INT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS shortcut_uploads_owner_idx ON shortcut_uploads (owner_id, id)`);
+    })().catch((err) => {
+      shortcutTablesEnsured = null;
+      throw err;
+    });
+  }
+  return shortcutTablesEnsured;
 }

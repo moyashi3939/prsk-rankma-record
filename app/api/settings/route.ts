@@ -90,6 +90,13 @@ export async function POST(request: Request) {
                grains = 0,
                placement_matches_played = 0,
                is_placement_completed = FALSE,
+               setup_done = FALSE,
+               baseline_known = FALSE,
+               start_rank_name = NULL,
+               start_class_index = 0,
+               start_grains = 0,
+               placement_rank_name = NULL,
+               placement_class_index = NULL,
                updated_at = CURRENT_TIMESTAMP
            WHERE owner_id = $1`,
           [owner]

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import ShortcutSettings from '@/components/ShortcutSettings';
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState({
@@ -340,6 +341,9 @@ export default function SettingsPage() {
             </button>
           </div>
         </form>
+
+        {/* 📱 iOSショートカット連携（ログイン中のみ） */}
+        {settings.userEmail && <ShortcutSettings />}
 
         {/* ☁️ ゲスト向けクラウドデータ管理 (引き継ぎ) セクション */}
         <div className="glass-panel p-6 rounded-3xl border border-purple-500/30 bg-purple-950/10 space-y-4">

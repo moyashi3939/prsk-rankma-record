@@ -24,6 +24,14 @@ export default function Home() {
 
   const [stats, setStats] = useState({ wins: 0, losses: 0, draws: 0, totalMatches: 0 });
 
+  // 最初の状態（判定マッチから / ランク指定）を選ぶ画面用
+  const [setupDone, setSetupDone] = useState(true); // 読み込み前に一瞬表示されないよう、最初は true にしておく
+  const [setupMode, setSetupMode] = useState<'choose' | 'rank'>('choose');
+  const [setupRank, setSetupRank] = useState('ルーキー');
+  const [setupClass, setSetupClass] = useState(0);
+  const [setupGrains, setSetupGrains] = useState(0);
+  const [setupSaving, setSetupSaving] = useState(false);
+
   // 初期データ＆ランク状態のロード
   useEffect(() => {
     Promise.all([
@@ -51,6 +59,12 @@ export default function Home() {
             placementMatchesPlayed: rankStatusData.placementMatchesPlayed ?? 0,
             isPlacementCompleted: rankStatusData.isPlacementCompleted ?? false,
           });
+          setSetupDone(!!rankStatusData.setupDone);
+
+          // 判定マッチは終わっているのにランクが未選択のとき（記録の削除などでこうなる）は、選んでもらう
+          if (rankStatusData.isPlacementCompleted && rankStatusData.rankName === '判定マッチ') {
+            setShowPlacementModal(true);
+          }
         }
         setLoading(false);
       })
@@ -166,7 +180,17 @@ export default function Home() {
       });
 
       if (res.ok) {
-        alert('レコードを削除し、粒を調整しました。');
+        const data = await res.json().catch(() => ({}));
+        const r = data.rankStatus;
+        let rankText = '';
+        if (r) {
+          rankText = !r.isPlacementCompleted
+            ? `判定マッチ ${r.placementMatchesPlayed}/3戦`
+            : r.rankName === 'マスター'
+            ? `${r.rankName} ${r.grains}粒`
+            : `${r.rankName} ${CLASSES[r.classIndex]} ${r.grains}粒`;
+        }
+        alert(`レコードを削除し、ランクを巻き戻しました。${rankText ? `\n現在: ${rankText}` : ''}`);
         window.location.reload(); // 最新状態に反映するため再読み込み
       } else {
         const data = await res.json();
@@ -177,6 +201,41 @@ export default function Home() {
       alert('通信エラーが発生しました。');
     }
   };
+
+  // 最初の状態を保存する（判定マッチから始める / ランクを指定して始める）
+  const submitSetup = async (payload: any) => {
+    setSetupSaving(true);
+    try {
+      const res = await fetch('/api/rank/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(`設定に失敗しました${data.error ? `：${data.error}` : ''}`);
+        return;
+      }
+      const r = data.rankStatus;
+      setRankData({
+        seasonId: r.seasonId || 'Season 1',
+        rankName: r.rankName || '判定マッチ',
+        classIndex: r.classIndex ?? 0,
+        grains: r.grains ?? 0,
+        placementMatchesPlayed: r.placementMatchesPlayed ?? 0,
+        isPlacementCompleted: r.isPlacementCompleted ?? false,
+      });
+      setSetupDone(true);
+      setSetupMode('choose');
+    } catch (err) {
+      console.error('最初の状態の設定エラー:', err);
+      alert('設定中にエラーが発生しました。');
+    } finally {
+      setSetupSaving(false);
+    }
+  };
+
+  const isSetupMaster = setupRank === 'マスター';
 
   const winRate = stats.totalMatches > 0 ? ((stats.wins / stats.totalMatches) * 100).toFixed(1) : '0.0';
   const isMaster = rankData.rankName === 'マスター';
@@ -350,6 +409,122 @@ export default function Home() {
 
       <RecordModal isOpen={showRecordModal} onClose={() => setShowRecordModal(false)} onSubmit={handleRecordSubmit} />
 
+      {/* 最初の状態を選ぶモーダル（初めて使うとき・データ初期化のあと） */}
+      {!loading &&
+        !setupDone &&
+        matchLogs.length === 0 &&
+        !rankData.isPlacementCompleted &&
+        rankData.placementMatchesPlayed === 0 && (
+          <div className="fixed inset-0 bg-[#080910]/90 backdrop-blur-xl z-50 flex items-center justify-center p-4">
+            <div className="glass-panel border border-cyan-500/40 rounded-3xl p-8 max-w-md w-full shadow-2xl text-center space-y-6 neon-glow-cyan">
+              <div>
+                <h3 className="text-xl font-black text-cyan-300">🎮 最初の状態を選んでください</h3>
+                <p className="text-xs text-slate-300 mt-1">
+                  ここから対戦記録をつけていきます。途中から使い始める場合は、いまのランクを指定できます。
+                </p>
+              </div>
+
+              {setupMode === 'choose' ? (
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    disabled={setupSaving}
+                    onClick={() => submitSetup({ mode: 'placement' })}
+                    className="w-full bg-gradient-to-r from-pink-600 to-cyan-500 hover:from-pink-500 hover:to-cyan-400 disabled:opacity-50 text-white font-black py-4 rounded-xl text-sm transition shadow-lg shadow-cyan-500/20"
+                  >
+                    ⚔️ 判定マッチから始める
+                    <span className="block text-[10px] font-normal text-white/80 mt-0.5">最初の3戦で実力を測定します</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={setupSaving}
+                    onClick={() => setSetupMode('rank')}
+                    className="w-full bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white font-black py-4 rounded-xl text-sm transition border border-white/10"
+                  >
+                    🎯 ランクを指定して始める
+                    <span className="block text-[10px] font-normal text-slate-300 mt-0.5">ランク・クラス・粒を決めて、途中から記録します</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4 text-left">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">ランク</label>
+                    <select
+                      value={setupRank}
+                      onChange={(e) => {
+                        setSetupRank(e.target.value);
+                        if (e.target.value !== 'マスター') setSetupGrains((g) => Math.min(g, 5));
+                      }}
+                      className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:outline-none focus:border-cyan-500"
+                    >
+                      {RANKS.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {!isSetupMaster && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">クラス</label>
+                      <select
+                        value={setupClass}
+                        onChange={(e) => setSetupClass(parseInt(e.target.value, 10))}
+                        className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:outline-none focus:border-cyan-500"
+                      >
+                        {CLASSES.map((c, idx) => (
+                          <option key={c} value={idx}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      {isSetupMaster ? '粒（マスターは累計。上限なし）' : '粒（0〜5）'}
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={isSetupMaster ? undefined : 5}
+                      value={setupGrains}
+                      onChange={(e) => {
+                        const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                        setSetupGrains(isSetupMaster ? n : Math.min(n, 5));
+                      }}
+                      className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div className="flex gap-3 pt-1">
+                    <button
+                      type="button"
+                      disabled={setupSaving}
+                      onClick={() => setSetupMode('choose')}
+                      className="flex-1 bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-xs transition"
+                    >
+                      戻る
+                    </button>
+                    <button
+                      type="button"
+                      disabled={setupSaving}
+                      onClick={() =>
+                        submitSetup({ mode: 'rank', rankName: setupRank, classIndex: setupClass, grains: setupGrains })
+                      }
+                      className="flex-[2] bg-gradient-to-r from-pink-600 to-cyan-500 hover:from-pink-500 hover:to-cyan-400 disabled:opacity-50 text-white font-black py-3 rounded-xl text-xs tracking-wider transition shadow-lg shadow-cyan-500/20"
+                    >
+                      {setupSaving ? '設定中...' : 'この状態で始める'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
       {/* 判定マッチ完了後のランク＆クラス設定モーダル */}
       {showPlacementModal && (
         <div className="fixed inset-0 bg-[#080910]/90 backdrop-blur-xl z-50 flex items-center justify-center p-4">
@@ -418,7 +593,12 @@ export default function Home() {
                 };
 
                 setRankData(updated);
-                await updateRankStatusOnServer(updated);
+                // 選んだランクも覚えておく（対戦記録を削除したときに、最初から計算し直すのに使う）
+                await updateRankStatusOnServer({
+                  ...updated,
+                  placementRankName: chosenRank,
+                  placementClassIndex: isChosenMaster ? 0 : chosenClassIndex,
+                });
                 setShowPlacementModal(false);
               }}
               className="w-full bg-gradient-to-r from-pink-600 to-cyan-500 hover:from-pink-500 hover:to-cyan-400 text-white font-black py-3 rounded-xl text-xs tracking-wider transition shadow-lg shadow-cyan-500/20"

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { query, getClient } from '@/lib/db';
 import { ensureOwnerColumns } from '@/lib/schema';
 import { getOwnerId } from '@/lib/session';
+import { baselineFromRow, formatRankStatus, replay, revertLegacy, stateFromRow } from '@/lib/rank';
 
 // 対戦レコードの保存
 export async function POST(request: Request) {
@@ -74,7 +75,9 @@ export async function POST(request: Request) {
   }
 }
 
-// 自分の対戦レコードの削除（勝敗に応じて、自分の rank_status の粒を巻き戻す）
+// 自分の対戦レコードの削除（ランク・粒も正しい状態に直す）
+// ・「最初の状態」が分かっているデータ … 最初の状態から、残りの対戦を順に当てはめ直して現在の状態を求める（正確）
+// ・古いデータ（最初の状態が不明） … 削除した試合ぶんを、現在の状態から1つ戻す（近似）
 export async function DELETE(request: Request) {
   const client = await getClient();
   try {
@@ -98,25 +101,35 @@ export async function DELETE(request: Request) {
       await client.query('ROLLBACK');
       return NextResponse.json({ error: 'Record not found' }, { status: 404 });
     }
+    const deletedResult: string = deleted.rows[0].result ?? '';
 
-    // 2. 勝敗から粒の増減を逆算（WIN 系は -1、LOSE は +1、DRAW は 0）
-    const result: string = deleted.rows[0].result ?? '';
-    let grainDelta = 0;
-    if (result.includes('WIN')) grainDelta = -1;
-    else if (result === 'LOSE') grainDelta = +1;
+    // 2. 自分のランク状態を、削除後の対戦履歴に合わせて直す
+    let rankStatus = null;
+    const rankRes = await client.query('SELECT * FROM rank_status WHERE owner_id = $1 FOR UPDATE', [owner]);
 
-    // 3. 自分の rank_status の粒を調整
-    if (grainDelta !== 0) {
-      await client.query(
+    if (rankRes.rows.length > 0) {
+      const row = rankRes.rows[0];
+      const remaining = await client.query('SELECT result FROM matches WHERE owner_id = $1 ORDER BY id ASC', [owner]);
+      const results: string[] = remaining.rows.map((r) => r.result ?? '');
+
+      const next = row.baseline_known
+        ? replay(baselineFromRow(row), results)
+        : revertLegacy(stateFromRow(row), deletedResult, results.length);
+
+      const updated = await client.query(
         `UPDATE rank_status
-         SET grains = GREATEST(0, grains + $1), updated_at = CURRENT_TIMESTAMP
-         WHERE owner_id = $2`,
-        [grainDelta, owner]
+         SET rank_name = $1, class_index = $2, grains = $3,
+             placement_matches_played = $4, is_placement_completed = $5,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $6
+         RETURNING *`,
+        [next.rankName, next.classIndex, next.grains, next.placementMatchesPlayed, next.isPlacementCompleted, row.id]
       );
+      rankStatus = formatRankStatus(updated.rows[0]);
     }
 
     await client.query('COMMIT');
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, rankStatus });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('レコード削除エラー:', error);

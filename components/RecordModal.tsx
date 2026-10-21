@@ -48,6 +48,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrNote, setOcrNote] = useState(''); // 読み取り結果についての注意書き
   const [jackets, setJackets] = useState<JacketRecord[]>([]); // 保存済みの曲ジャケット
+  const [inbox, setInbox] = useState<{ id: number }[]>([]); // ショートカットから届いた画像（受信箱）
   const [pendingJacket, setPendingJacket] = useState<JacketHash | null>(null); // 単発モードで読み取ったジャケット
   const [candidates, setCandidates] = useState<SongFromDB[]>([]); // 単発モードの曲の候補（総ノーツ数が同じ曲）
 
@@ -90,6 +91,16 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
         })
         .catch(() => {
           setJackets([]);
+        });
+
+      // ショートカットから届いた画像（ログイン中のみ）
+      fetch('/api/shortcut/inbox', { cache: 'no-store' })
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) setInbox(data);
+        })
+        .catch(() => {
+          setInbox([]);
         });
     }
   }, [isOpen]);
@@ -277,7 +288,12 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
   const handleBatchFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
+    await processBatchFiles(files, []);
+  };
 
+  // 画像をまとめて解析して、1枚ずつ確認しながら登録できる状態にする
+  // uploadIds … ショートカットから届いた画像のとき、その受信箱でのID（保存したら受信箱から消す）
+  const processBatchFiles = async (files: File[], uploadIds: (number | null)[]) => {
     setBatchFiles(files);
     setBatchCurrentIndex(0);
     setOcrNote('');
@@ -296,6 +312,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
           note,
           jacket: ocr.jacket,
           candidates: cands,
+          uploadId: uploadIds[i] ?? null,
         });
       } catch (err) {
         console.error(`一括解析エラー (${i + 1}枚目):`, err);
@@ -309,6 +326,37 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
       setOcrNote(parsedArray[0].note || '');
     }
     setOcrLoading(false);
+  };
+
+  // 📥 ショートカットから届いた画像を取り込んで、一括モードで1枚ずつ確認できるようにする
+  const importFromInbox = async () => {
+    if (inbox.length === 0) return;
+
+    setMode('batch');
+    setOcrLoading(true);
+    try {
+      const files: File[] = [];
+      const ids: number[] = [];
+      for (const item of inbox) {
+        const res = await fetch(`/api/shortcut/inbox/${item.id}`, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        files.push(new File([blob], `shortcut-${item.id}`, { type: blob.type }));
+        ids.push(item.id);
+      }
+      setInbox([]);
+
+      if (files.length === 0) {
+        setOcrLoading(false);
+        alert('届いた画像を取り込めませんでした。');
+        return;
+      }
+      await processBatchFiles(files, ids);
+    } catch (err) {
+      console.error('受信箱の取り込みエラー:', err);
+      setOcrLoading(false);
+      alert('受信箱の取り込み中にエラーが発生しました。');
+    }
   };
 
   // 一括モードで「保存して次へ」進むときの処理
@@ -384,6 +432,14 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
       isBothAP,
       result,
     });
+
+    // ショートカットから届いた画像だったら、保存したので受信箱から消す
+    const uploadId = mode === 'batch' ? batchResults[batchCurrentIndex]?.uploadId : null;
+    if (uploadId) {
+      fetch(`/api/shortcut/inbox/${uploadId}`, { method: 'DELETE' }).catch((err) =>
+        console.error('受信箱の画像削除エラー:', err)
+      );
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -476,6 +532,25 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
             ✕
           </button>
         </div>
+
+        {inbox.length > 0 && batchResults.length === 0 && (
+          <div className="bg-amber-950/20 border border-amber-500/40 p-4 rounded-2xl flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold text-amber-300">📥 ショートカットから届いた画像が {inbox.length} 枚あります</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                取り込むと、1枚ずつ確認しながら登録できます。保存した画像は、受信箱から消えます。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={importFromInbox}
+              disabled={ocrLoading}
+              className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-xl text-xs transition shrink-0"
+            >
+              取り込む
+            </button>
+          </div>
+        )}
 
         {/* 📸 画像アップロードエリア（モード別） */}
         {mode === 'single' ? (
