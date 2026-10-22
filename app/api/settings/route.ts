@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { query, getClient } from '@/lib/db';
 import { ensureAppSettings, ensureOwnerColumns } from '@/lib/schema';
 import { getSessionEmail, getOwnerId } from '@/lib/session';
-import { isAdminEmail } from '@/lib/admin';
 
 export async function GET() {
   try {
@@ -18,13 +17,12 @@ export async function GET() {
         customId: 'player_default',
         userId: '1234567890',
         userEmail: '',
-        isAdmin: false,
       });
     }
 
     // ログイン中のユーザーの設定を検索
     const res = await query('SELECT * FROM app_settings WHERE user_email = $1', [userEmail]);
-    
+
     if (res.rows.length > 0) {
       const row = res.rows[0];
       return NextResponse.json({
@@ -32,7 +30,6 @@ export async function GET() {
         customId: row.custom_id || 'player_default',
         userId: row.user_id || '1234567890',
         userEmail: row.user_email,
-        isAdmin: isAdminEmail(row.user_email),
       });
     }
 
@@ -52,7 +49,6 @@ export async function GET() {
       customId: row?.custom_id || 'player_default',
       userId: row?.user_id || '1234567890',
       userEmail: userEmail,
-      isAdmin: isAdminEmail(userEmail),
     });
 
   } catch (error) {
@@ -90,13 +86,6 @@ export async function POST(request: Request) {
                grains = 0,
                placement_matches_played = 0,
                is_placement_completed = FALSE,
-               setup_done = FALSE,
-               baseline_known = FALSE,
-               start_rank_name = NULL,
-               start_class_index = 0,
-               start_grains = 0,
-               placement_rank_name = NULL,
-               placement_class_index = NULL,
                updated_at = CURRENT_TIMESTAMP
            WHERE owner_id = $1`,
           [owner]

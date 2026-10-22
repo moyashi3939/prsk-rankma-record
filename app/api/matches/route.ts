@@ -3,62 +3,78 @@ import { NextResponse } from 'next/server';
 import { query, getClient } from '@/lib/db';
 import { ensureOwnerColumns } from '@/lib/schema';
 import { getOwnerId } from '@/lib/session';
-import { recordMatchForOwner } from '@/lib/recordMatch';
-import { baselineFromRow, formatRankStatus, replay, revertLegacy, stateFromRow } from '@/lib/rank';
 
-// 対戦レコードの保存（記録の保存と、ランク・粒の更新を、サーバーで1回にまとめて行う）
-// 勝敗・スコア・ランクの計算は、サーバー側（lib/matchCalc.ts / lib/rank.ts）で行う。
-// 片方だけ保存されて、ずれることがない。
+// 対戦レコードの保存
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { songName, difficulty, level, isOpponentHigher } = body;
+    const {
+      songName,
+      difficulty,
+      level,
+      isOpponentHigher,
+      myPerf,
+      myGreat,
+      myGood,
+      myBad,
+      myMiss,
+      oppPerf,
+      oppGreat,
+      oppGood,
+      oppBad,
+      oppMiss,
+      myScore,
+      oppScore,
+      result,
+    } = body;
 
-    if (typeof songName !== 'string' || !songName.trim() || typeof difficulty !== 'string' || !difficulty) {
-      return NextResponse.json({ error: '曲名と難易度が必要です' }, { status: 400 });
+    if (!result) {
+      return NextResponse.json({ error: 'result is required' }, { status: 400 });
     }
 
-    const int = (v: unknown) => Math.max(0, parseInt(String(v ?? ''), 10) || 0);
-
-    // 総ノーツ数は、登録されている曲から取る（なければ、自分の判定の合計になる）
-    const song = await query('SELECT total_notes FROM songs WHERE song_name = $1 AND difficulty = $2 LIMIT 1', [
-      songName,
-      difficulty,
-    ]);
-    const totalNotes = song.rows.length > 0 ? Number(song.rows[0].total_notes) || 0 : 0;
-
+    await ensureOwnerColumns();
     const owner = await getOwnerId();
-    const saved = await recordMatchForOwner(owner, {
+
+    const queryText = `
+      INSERT INTO matches (
+        song_name, difficulty, level, is_opponent_higher,
+        my_perf, my_great, my_good, my_bad, my_miss,
+        opp_perf, opp_great, opp_good, opp_bad, opp_miss,
+        my_score, opp_score, result, owner_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      RETURNING *;
+    `;
+
+    const values = [
       songName,
       difficulty,
-      level: String(level ?? ''),
-      totalNotes,
-      isOpponentHigher: !!isOpponentHigher,
-      my: {
-        perfect: int(body.myPerfect),
-        great: int(body.myGreat),
-        good: int(body.myGood),
-        bad: int(body.myBad),
-        miss: int(body.myMiss),
-      },
-      opp: {
-        great: int(body.oppGreat),
-        good: int(body.oppGood),
-        bad: int(body.oppBad),
-        miss: int(body.oppMiss),
-      },
-    });
+      level,
+      isOpponentHigher || false,
+      parseInt(myPerf) || 0,
+      parseInt(myGreat) || 0,
+      parseInt(myGood) || 0,
+      parseInt(myBad) || 0,
+      parseInt(myMiss) || 0,
+      parseInt(oppPerf) || 0,
+      parseInt(oppGreat) || 0,
+      parseInt(oppGood) || 0,
+      parseInt(oppBad) || 0,
+      parseInt(oppMiss) || 0,
+      parseInt(myScore) || 0,
+      parseInt(oppScore) || 0,
+      result,
+      owner,
+    ];
 
-    return NextResponse.json({ success: true, match: saved.match, rankStatus: saved.rankStatus });
+    const res = await query(queryText, values);
+    return NextResponse.json({ success: true, match: res.rows[0] });
   } catch (error) {
     console.error('対戦レコード保存エラー:', error);
     return NextResponse.json({ error: 'Failed to save match' }, { status: 500 });
   }
 }
 
-// 自分の対戦レコードの削除（ランク・粒も正しい状態に直す）
-// ・「最初の状態」が分かっているデータ … 最初の状態から、残りの対戦を順に当てはめ直して現在の状態を求める（正確）
-// ・古いデータ（最初の状態が不明） … 削除した試合ぶんを、現在の状態から1つ戻す（近似）
+// 自分の対戦レコードの削除（勝敗に応じて、自分の rank_status の粒を巻き戻す）
 export async function DELETE(request: Request) {
   const client = await getClient();
   try {
@@ -82,35 +98,25 @@ export async function DELETE(request: Request) {
       await client.query('ROLLBACK');
       return NextResponse.json({ error: 'Record not found' }, { status: 404 });
     }
-    const deletedResult: string = deleted.rows[0].result ?? '';
 
-    // 2. 自分のランク状態を、削除後の対戦履歴に合わせて直す
-    let rankStatus = null;
-    const rankRes = await client.query('SELECT * FROM rank_status WHERE owner_id = $1 FOR UPDATE', [owner]);
+    // 2. 勝敗から粒の増減を逆算（WIN 系は -1、LOSE は +1、DRAW は 0）
+    const result: string = deleted.rows[0].result ?? '';
+    let grainDelta = 0;
+    if (result.includes('WIN')) grainDelta = -1;
+    else if (result === 'LOSE') grainDelta = +1;
 
-    if (rankRes.rows.length > 0) {
-      const row = rankRes.rows[0];
-      const remaining = await client.query('SELECT result FROM matches WHERE owner_id = $1 ORDER BY id ASC', [owner]);
-      const results: string[] = remaining.rows.map((r) => r.result ?? '');
-
-      const next = row.baseline_known
-        ? replay(baselineFromRow(row), results)
-        : revertLegacy(stateFromRow(row), deletedResult, results.length);
-
-      const updated = await client.query(
+    // 3. 自分の rank_status の粒を調整
+    if (grainDelta !== 0) {
+      await client.query(
         `UPDATE rank_status
-         SET rank_name = $1, class_index = $2, grains = $3,
-             placement_matches_played = $4, is_placement_completed = $5,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $6
-         RETURNING *`,
-        [next.rankName, next.classIndex, next.grains, next.placementMatchesPlayed, next.isPlacementCompleted, row.id]
+         SET grains = GREATEST(0, grains + $1), updated_at = CURRENT_TIMESTAMP
+         WHERE owner_id = $2`,
+        [grainDelta, owner]
       );
-      rankStatus = formatRankStatus(updated.rows[0]);
     }
 
     await client.query('COMMIT');
-    return NextResponse.json({ success: true, rankStatus });
+    return NextResponse.json({ success: true });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('レコード削除エラー:', error);
