@@ -87,6 +87,7 @@ sudo systemctl reload caddy
 
 - ファイアウォールで **80番と443番**を開けておく（証明書の取得に80番が必要）
 - 3000番は、外に開けなくてよい（Caddy が中でつなぐ）
+- 昔の「クラウド同期」機能（`cloud_backups` テーブル）は、なくなりました。テーブルが残っていても害はありません（消したいときは `DROP TABLE cloud_backups;`）
 
 ## 4. Google Cloud Console の設定
 
@@ -113,7 +114,30 @@ sudo systemctl reload caddy
 - PostgreSQL の `postgresql.conf` で `listen_addresses = 'localhost'`
 - 他のサービス（Discord Bot など）がこのDBを外から使っている場合は、先にそちらの設定を確認する
 
-## 7. アップデートのしかた
+## 7. バックアップ（必須）
+
+DBが壊れたり、操作を間違えたりしたときのために、毎日バックアップを取ります。
+`scripts/backup-db.sh` が、このアプリのテーブルだけを `pg_dump` して、14日ぶん残します（他のサービスのテーブルは含みません）。
+
+```bash
+# 動作確認（VPS で）
+sudo apt install -y postgresql-client      # pg_dump が無ければ
+cd ~/prsk-rankma-record
+set -a; . ./.env.local; set +a
+./scripts/backup-db.sh
+```
+
+毎日の自動実行（`crontab -e` に追記。毎日 午前4時）:
+
+```
+0 4 * * * cd ~/prsk-rankma-record && set -a && . ./.env.local && set +a && ./scripts/backup-db.sh >> ~/rankma-backups/backup.log 2>&1
+```
+
+- 保存先は `~/rankma-backups`（`BACKUP_DIR` で変えられます）。VPS の中だけだと、VPS ごと壊れたときに失われるので、
+  ときどき、手元のPCにもコピーしてください（例: `scp ユーザー@VPS:~/rankma-backups/最新のファイル .`）
+- **復元のしかた**: `gunzip -c バックアップ.sql.gz | psql "$DATABASE_URL"`（同じ名前のテーブルがあると、エラーになります。復元の前に、中身を確認してください）
+
+## 8. アップデートのしかた
 
 ```bash
 git pull   # または、新しいファイルを上書き
@@ -122,7 +146,7 @@ npm run build
 pm2 restart rankma
 ```
 
-## 8. ドメインを取得したら
+## 9. ドメインを取得したら
 
 1. ドメインの DNS で、`A` レコードを VPS のIPアドレスに向ける
 2. `Caddyfile` の `rankma-record.duckdns.org` を、新しいドメインに書き換えて `sudo systemctl reload caddy`

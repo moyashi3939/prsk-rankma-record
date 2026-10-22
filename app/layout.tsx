@@ -5,6 +5,7 @@ import type { Metadata } from 'next'; // ※Next.jsの型定義関係で layout 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import RecordModal from '@/components/RecordModal';
+import ToastHost from '@/components/ToastHost';
 import './globals.css';
 
 export default function RootLayout({
@@ -77,6 +78,7 @@ export default function RootLayout({
           onClose={() => setIsModalOpen(false)}
           onSubmit={handleModalSubmit}
         />
+        <ToastHost />
       </body>
     </html>
   );

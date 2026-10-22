@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import RecordModal from '@/components/RecordModal';
 import Link from 'next/link';
 import { FOOTER_NOTE, UPDATES } from '@/lib/siteContent';
+import { toast, toastAfterReload } from '@/lib/toast';
 
 const CLASSES = ['クラス 1', 'クラス 2', 'クラス 3', 'クラス 4'];
 const latestUpdate = UPDATES[0] ?? null; // ホーム画面の「お知らせ」に出す、最新のアップデート情報
@@ -89,85 +90,46 @@ export default function Home() {
     }
   };
 
+  // 対戦の記録。保存と、ランク・粒の更新は、サーバーで1回にまとめて行う（/api/matches）
   const handleRecordSubmit = async (recordData: any) => {
-    const { result, isBothAP } = recordData;
-    let actualResult = result;
-    if (result === 'DRAW' && isBothAP) actualResult = 'WIN (AP DRAW)';
-
-    let newGrains = rankData.grains;
-    let newClassIndex = rankData.classIndex;
-    let newPlacementPlayed = rankData.placementMatchesPlayed;
-    let newPlacementCompleted = rankData.isPlacementCompleted;
-    let newRankName = rankData.rankName;
-
-    if (!newPlacementCompleted) {
-      newPlacementPlayed += 1;
-      if (newPlacementPlayed >= 3) {
-        newPlacementCompleted = true;
-        setShowPlacementModal(true);
-      }
-    } else if (newRankName === 'マスター') {
-      if (actualResult.includes('WIN')) newGrains += 1;
-      else if (result === 'LOSE') newGrains = Math.max(0, newGrains - 1);
-    } else {
-      if (actualResult.includes('WIN')) {
-        newGrains += 1;
-        if (newGrains >= 6) {
-          if (newClassIndex < CLASSES.length - 1) {
-            newClassIndex += 1;
-            newGrains = 1;
-          } else {
-            newGrains = 5;
-          }
-        }
-      } else if (result === 'LOSE') {
-        newGrains -= 1;
-        if (newGrains < 0) {
-          if (newClassIndex > 0) {
-            newClassIndex -= 1;
-            newGrains = 4;
-          } else {
-            newGrains = 0;
-          }
-        }
-      }
-    }
-
-    const updatedRankStatus = {
-      seasonId: rankData.seasonId,
-      rankName: newRankName,
-      classIndex: newClassIndex,
-      grains: newGrains,
-      placementMatchesPlayed: newPlacementPlayed,
-      isPlacementCompleted: newPlacementCompleted,
-    };
-
-    setRankData(updatedRankStatus);
-    await updateRankStatusOnServer(updatedRankStatus);
-
-    const payload = { ...recordData, result: actualResult, seasonId: rankData.seasonId };
-
     try {
       const response = await fetch('/api/matches', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(recordData),
       });
 
-      if (!response.ok) throw new Error('Failed to save match');
-      const json = await response.json();
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || 'Failed to save match');
 
+      // サーバーで計算された、最新のランク状態を表示に反映する
+      const r = json.rankStatus;
+      if (r) {
+        setRankData({
+          seasonId: r.seasonId || rankData.seasonId,
+          rankName: r.rankName || '判定マッチ',
+          classIndex: r.classIndex ?? 0,
+          grains: r.grains ?? 0,
+          placementMatchesPlayed: r.placementMatchesPlayed ?? 0,
+          isPlacementCompleted: r.isPlacementCompleted ?? false,
+        });
+        // 判定マッチが終わったら、ランクを選んでもらう
+        if (r.isPlacementCompleted && r.rankName === '判定マッチ') setShowPlacementModal(true);
+      }
+
+      // 保存された勝敗（引き分けでも両者APなら「勝ち扱い」で保存される）
+      const saved: string = json.match?.result ?? recordData.result ?? '';
       setStats((prev) => ({
-        wins: prev.wins + (actualResult.includes('WIN') ? 1 : 0),
-        losses: prev.losses + (result === 'LOSE' ? 1 : 0),
-        draws: prev.draws + (result === 'DRAW' && !isBothAP ? 1 : 0),
+        wins: prev.wins + (saved.includes('WIN') ? 1 : 0),
+        losses: prev.losses + (saved === 'LOSE' ? 1 : 0),
+        draws: prev.draws + (saved === 'DRAW' ? 1 : 0),
         totalMatches: prev.totalMatches + 1,
       }));
 
       setMatchLogs((prev) => [json.match, ...prev]);
     } catch (error) {
       console.error('保存エラー:', error);
-      alert('対戦データの保存に失敗しました。');
+      toast('対戦データの保存に失敗しました。', 'error');
     }
   };
 
@@ -193,15 +155,15 @@ export default function Home() {
             ? `${r.rankName} ${r.grains}粒`
             : `${r.rankName} ${CLASSES[r.classIndex]} ${r.grains}粒`;
         }
-        alert(`レコードを削除し、ランクを巻き戻しました。${rankText ? `\n現在: ${rankText}` : ''}`);
+        toastAfterReload(`レコードを削除し、ランクを巻き戻しました。${rankText ? `\n現在: ${rankText}` : ''}`, 'success');
         window.location.reload(); // 最新状態に反映するため再読み込み
       } else {
         const data = await res.json();
-        alert(`削除失敗: ${data.error || '不明なエラー'}`);
+        toast(`削除に失敗しました：${data.error || '不明なエラー'}`, 'error');
       }
     } catch (err) {
       console.error('削除通信エラー:', err);
-      alert('通信エラーが発生しました。');
+      toast('通信エラーが発生しました。', 'error');
     }
   };
 
@@ -216,7 +178,7 @@ export default function Home() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(`設定に失敗しました${data.error ? `：${data.error}` : ''}`);
+        toast(`設定に失敗しました${data.error ? `：${data.error}` : ''}`, 'error');
         return;
       }
       const r = data.rankStatus;
@@ -232,7 +194,7 @@ export default function Home() {
       setSetupMode('choose');
     } catch (err) {
       console.error('最初の状態の設定エラー:', err);
-      alert('設定中にエラーが発生しました。');
+      toast('設定中にエラーが発生しました。', 'error');
     } finally {
       setSetupSaving(false);
     }

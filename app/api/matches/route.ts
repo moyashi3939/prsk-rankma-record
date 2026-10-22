@@ -3,72 +3,53 @@ import { NextResponse } from 'next/server';
 import { query, getClient } from '@/lib/db';
 import { ensureOwnerColumns } from '@/lib/schema';
 import { getOwnerId } from '@/lib/session';
+import { recordMatchForOwner } from '@/lib/recordMatch';
 import { baselineFromRow, formatRankStatus, replay, revertLegacy, stateFromRow } from '@/lib/rank';
 
-// 対戦レコードの保存
+// 対戦レコードの保存（記録の保存と、ランク・粒の更新を、サーバーで1回にまとめて行う）
+// 勝敗・スコア・ランクの計算は、サーバー側（lib/matchCalc.ts / lib/rank.ts）で行う。
+// 片方だけ保存されて、ずれることがない。
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const {
-      songName,
-      difficulty,
-      level,
-      isOpponentHigher,
-      myPerf,
-      myGreat,
-      myGood,
-      myBad,
-      myMiss,
-      oppPerf,
-      oppGreat,
-      oppGood,
-      oppBad,
-      oppMiss,
-      myScore,
-      oppScore,
-      result,
-    } = body;
+    const { songName, difficulty, level, isOpponentHigher } = body;
 
-    if (!result) {
-      return NextResponse.json({ error: 'result is required' }, { status: 400 });
+    if (typeof songName !== 'string' || !songName.trim() || typeof difficulty !== 'string' || !difficulty) {
+      return NextResponse.json({ error: '曲名と難易度が必要です' }, { status: 400 });
     }
 
-    await ensureOwnerColumns();
-    const owner = await getOwnerId();
+    const int = (v: unknown) => Math.max(0, parseInt(String(v ?? ''), 10) || 0);
 
-    const queryText = `
-      INSERT INTO matches (
-        song_name, difficulty, level, is_opponent_higher,
-        my_perf, my_great, my_good, my_bad, my_miss,
-        opp_perf, opp_great, opp_good, opp_bad, opp_miss,
-        my_score, opp_score, result, owner_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-      RETURNING *;
-    `;
-
-    const values = [
+    // 総ノーツ数は、登録されている曲から取る（なければ、自分の判定の合計になる）
+    const song = await query('SELECT total_notes FROM songs WHERE song_name = $1 AND difficulty = $2 LIMIT 1', [
       songName,
       difficulty,
-      level,
-      isOpponentHigher || false,
-      parseInt(myPerf) || 0,
-      parseInt(myGreat) || 0,
-      parseInt(myGood) || 0,
-      parseInt(myBad) || 0,
-      parseInt(myMiss) || 0,
-      parseInt(oppPerf) || 0,
-      parseInt(oppGreat) || 0,
-      parseInt(oppGood) || 0,
-      parseInt(oppBad) || 0,
-      parseInt(oppMiss) || 0,
-      parseInt(myScore) || 0,
-      parseInt(oppScore) || 0,
-      result,
-      owner,
-    ];
+    ]);
+    const totalNotes = song.rows.length > 0 ? Number(song.rows[0].total_notes) || 0 : 0;
 
-    const res = await query(queryText, values);
-    return NextResponse.json({ success: true, match: res.rows[0] });
+    const owner = await getOwnerId();
+    const saved = await recordMatchForOwner(owner, {
+      songName,
+      difficulty,
+      level: String(level ?? ''),
+      totalNotes,
+      isOpponentHigher: !!isOpponentHigher,
+      my: {
+        perfect: int(body.myPerfect),
+        great: int(body.myGreat),
+        good: int(body.myGood),
+        bad: int(body.myBad),
+        miss: int(body.myMiss),
+      },
+      opp: {
+        great: int(body.oppGreat),
+        good: int(body.oppGood),
+        bad: int(body.oppBad),
+        miss: int(body.oppMiss),
+      },
+    });
+
+    return NextResponse.json({ success: true, match: saved.match, rankStatus: saved.rankStatus });
   } catch (error) {
     console.error('対戦レコード保存エラー:', error);
     return NextResponse.json({ error: 'Failed to save match' }, { status: 500 });

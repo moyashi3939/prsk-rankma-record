@@ -10,10 +10,23 @@ export async function GET(request: Request) {
   const googleError = searchParams.get('error'); // ユーザーが同意画面でキャンセルした場合など
 
   const base = process.env.NEXT_PUBLIC_BASE_URL || new URL(request.url).origin;
-  const fail = (reason: string) => NextResponse.redirect(new URL(`/settings?error=${reason}`, base));
+  // ログイン処理の最後に、使い終わった state のCookieを消す
+  const clearState = (res: NextResponse) => {
+    res.cookies.set('oauth_state', '', { path: '/', httpOnly: true, expires: new Date(0) });
+    return res;
+  };
+  const fail = (reason: string) => clearState(NextResponse.redirect(new URL(`/settings?error=${reason}`, base)));
 
   if (googleError || !code) {
     console.error('Googleログイン: コードなし/キャンセル', googleError);
+    return fail('auth_failed');
+  }
+
+  // state が、ログイン開始のときに保存したものと一致するか確認する（別のサイトから仕組まれたログインの防止）
+  const expectedState = (await cookies()).get('oauth_state')?.value;
+  const state = searchParams.get('state');
+  if (!expectedState || !state || state !== expectedState) {
+    console.error('Googleログイン: state が一致しません');
     return fail('auth_failed');
   }
 
@@ -81,7 +94,7 @@ export async function GET(request: Request) {
     });
     // 旧方式（署名なし）のCookieは削除
     response.cookies.set('user_email', '', { path: '/', httpOnly: true, expires: new Date(0) });
-    return response;
+    return clearState(response);
   } catch (error) {
     console.error('Google認証サーバーエラー:', error);
     return fail('server_error');

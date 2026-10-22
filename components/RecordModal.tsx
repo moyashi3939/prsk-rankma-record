@@ -10,6 +10,7 @@ import {
   type OcrResult,
 } from '@/lib/resultOcr';
 import { calcMatch } from '@/lib/matchCalc';
+import { toast } from '@/lib/toast';
 import { classifyDifficultyByColor, identifySong, isUsableRingColor, type DifficultyColor } from '@/lib/songMatch';
 
 interface SongFromDB {
@@ -48,6 +49,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrNote, setOcrNote] = useState(''); // 読み取り結果についての注意書き
+  const [batchProgress, setBatchProgress] = useState(0); // 一括解析で、いま何枚目を読み取っているか
   const [jackets, setJackets] = useState<JacketRecord[]>([]); // 保存済みの曲ジャケット
   const [inbox, setInbox] = useState<{ id: number; reason?: string | null }[]>([]); // ショートカットから届いた、確認待ちの画像（受信箱）
   const [difficultyColors, setDifficultyColors] = useState<DifficultyColor[]>([]); // 覚えている、難易度ごとの枠の色
@@ -250,7 +252,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
       setCandidates(cands);
     } catch (err) {
       console.error('OCRエラー:', err);
-      alert('画像の解析に失敗しました。ネットワーク接続（初回のOCR読み込みに必要）と画像を確認してください。');
+      toast('画像の解析に失敗しました。ネットワーク接続（初回のOCR読み込みに必要）と画像を確認してください。', 'error');
     } finally {
       setOcrLoading(false);
     }
@@ -274,6 +276,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
 
     // 順番に一括解析
     for (let i = 0; i < files.length; i++) {
+      setBatchProgress(i + 1);
       try {
         const ocr = await analyzeResultImage(files[i]);
         const { form, note, candidates: cands } = applyOcr(ocr, initialFormState);
@@ -291,6 +294,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
       }
     }
 
+    setBatchProgress(0);
     setBatchResults(parsedArray);
     if (parsedArray.length > 0) {
       setMatchForm(parsedArray[0].data);
@@ -320,14 +324,14 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
 
       if (files.length === 0) {
         setOcrLoading(false);
-        alert('届いた画像を取り込めませんでした。');
+        toast('届いた画像を取り込めませんでした。', 'error');
         return;
       }
       await processBatchFiles(files, ids);
     } catch (err) {
       console.error('受信箱の取り込みエラー:', err);
       setOcrLoading(false);
-      alert('受信箱の取り込み中にエラーが発生しました。');
+      toast('受信箱の取り込み中にエラーが発生しました。', 'error');
     }
   };
 
@@ -344,7 +348,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
       setPreviewUrl(batchResults[nextIndex].previewUrl);
       setOcrNote(batchResults[nextIndex].note || '');
     } else {
-      alert('すべての連続登録が完了しました！ 🎉');
+      toast('すべての連続登録が完了しました！ 🎉', 'success');
       handleClose();
     }
   };
@@ -531,7 +535,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
           <div className="bg-cyan-950/10 border border-cyan-500/30 p-4 rounded-2xl space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-xs font-bold text-cyan-400">⚡ 複数スクショ一括連続アップロード</span>
-              {ocrLoading && <span className="text-xs text-cyan-300 animate-pulse font-bold">全画像を順次解析中... ({batchFiles.length}枚)</span>}
+              {ocrLoading && <span className="text-xs text-cyan-300 animate-pulse font-bold">全画像を順次解析中... ({batchProgress}/{batchFiles.length}枚目)</span>}
               {batchResults.length > 0 && !ocrLoading && (
                 <span className="text-xs text-cyan-200 font-bold bg-cyan-500/20 px-2 py-0.5 rounded">
                   進捗: {batchCurrentIndex + 1} / {batchResults.length} 枚目

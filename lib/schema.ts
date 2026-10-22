@@ -49,11 +49,18 @@ export function ensureOwnerColumns(): Promise<void> {
   if (!ownerColumnsEnsured) {
     ownerColumnsEnsured = (async () => {
       await query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS owner_id VARCHAR(255)`);
+      // どのシーズンの対戦か（シーズンごとの分析などに使えるように、記録するときに保存する）
+      await query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS season_id VARCHAR(50)`);
       await query(`CREATE INDEX IF NOT EXISTS matches_owner_idx ON matches (owner_id)`);
 
       await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS owner_id VARCHAR(255)`);
       // 1ユーザーにつきランク状態は1行（NULL の旧データは重複してもOK）
       await query(`CREATE UNIQUE INDEX IF NOT EXISTS rank_status_owner_uidx ON rank_status (owner_id)`);
+      await query(
+        `UPDATE matches m SET season_id = r.season_id
+         FROM rank_status r
+         WHERE m.season_id IS NULL AND m.owner_id = r.owner_id AND r.season_id IS NOT NULL`
+      );
 
       // 「最初の状態」を覚えておくためのカラム（対戦履歴を削除したとき、最初から計算し直すのに使う）
       await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS setup_done BOOLEAN DEFAULT FALSE`); // 最初の状態を選び終わったか
@@ -210,4 +217,27 @@ export function ensureDifficultyColors(): Promise<void> {
     });
   }
   return difficultyColorsEnsured;
+}
+
+// フォロー（ライバル）のテーブル。follower_email は、フォローした人の持ち主ID（ログイン中はメールアドレス、ゲストは guest:〜）
+let friendshipsEnsured: Promise<void> | null = null;
+
+export function ensureFriendships(): Promise<void> {
+  if (!friendshipsEnsured) {
+    friendshipsEnsured = (async () => {
+      await query(`
+        CREATE TABLE IF NOT EXISTS friendships (
+          id SERIAL PRIMARY KEY,
+          follower_email VARCHAR(255) NOT NULL DEFAULT 'default_user',
+          following_custom_id VARCHAR(50) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(follower_email, following_custom_id)
+        );
+      `);
+    })().catch((err) => {
+      friendshipsEnsured = null;
+      throw err;
+    });
+  }
+  return friendshipsEnsured;
 }

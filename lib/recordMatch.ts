@@ -64,8 +64,8 @@ export async function recordMatchForOwner(owner: string, input: RecordMatchInput
          song_name, difficulty, level, is_opponent_higher,
          my_perf, my_great, my_good, my_bad, my_miss,
          opp_perf, opp_great, opp_good, opp_bad, opp_miss,
-         my_score, opp_score, result, owner_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         my_score, opp_score, result, owner_id, season_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        RETURNING *`,
       [
         input.songName,
@@ -86,6 +86,7 @@ export async function recordMatchForOwner(owner: string, input: RecordMatchInput
         calc.oppScore,
         actualResult,
         owner,
+        rankRow.season_id ?? null,
       ]
     );
 

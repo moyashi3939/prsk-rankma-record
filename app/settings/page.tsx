@@ -19,9 +19,6 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
-  // ゲスト向けクラウド保存用 State
-  const [cloudKey, setCloudKey] = useState('');
-
   useEffect(() => {
     fetch('/api/settings')
       .then((res) => res.json())
@@ -98,64 +95,6 @@ export default function SettingsPage() {
       }
     } catch (err) {
       alert('ログアウト処理中にエラーが発生しました。');
-    }
-  };
-
-  // クラウドへデータを保存 (ゲスト・バックアップ用)
-  const handleCloudSave = async () => {
-    if (!cloudKey.trim()) {
-      alert('任意の合言葉（引き継ぎコード）を入力してください。');
-      return;
-    }
-
-    try {
-      const backupData = { settings, savedAt: new Date() };
-      const res = await fetch('/api/cloud/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ saveKey: cloudKey.trim(), backupData }),
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        alert('☁️ クラウドへデータを正常に保存しました！この合言葉で他の端末から復元できます。');
-      } else {
-        alert(`保存失敗: ${data.error}`);
-      }
-    } catch (err) {
-      alert('クラウド保存中に通信エラーが発生しました。');
-    }
-  };
-
-  // クラウドからデータを読み込み (復元用)
-  const handleCloudLoad = async () => {
-    if (!cloudKey.trim()) {
-      alert('保存した合言葉（引き継ぎコード）を入力してください。');
-      return;
-    }
-
-    if (!confirm('クラウドからデータを読み込むと、現在のローカルデータが上書きされます。よろしいですか？')) return;
-
-    try {
-      const res = await fetch(`/api/cloud/sync?key=${encodeURIComponent(cloudKey.trim())}`);
-      const data = await res.json();
-
-      if (res.ok && data.data) {
-        if (data.data.settings) {
-          setSettings(data.data.settings);
-          await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data.data.settings),
-          });
-        }
-        alert('📂 クラウドからデータを正常に復元しました！');
-        window.location.reload();
-      } else {
-        alert('指定された合言葉のバックアップデータが見つかりませんでした。');
-      }
-    } catch (err) {
-      alert('クラウド読み込み中に通信エラーが発生しました。');
     }
   };
 
@@ -345,46 +284,19 @@ export default function SettingsPage() {
         {/* 📱 iOSショートカット連携（ログイン中のみ） */}
         {settings.userEmail && <ShortcutSettings />}
 
-        {/* ☁️ ゲスト向けクラウドデータ管理 (引き継ぎ) セクション */}
-        <div className="glass-panel p-6 rounded-3xl border border-purple-500/30 bg-purple-950/10 space-y-4">
-          <h3 className="text-lg font-black text-purple-400 flex items-center space-x-2">
-            <span>☁️ ゲスト向け クラウドデータ保存・読み込み</span>
-          </h3>
-          <p className="text-xs text-slate-400">
-            ログインせずに利用しているゲストの方も、任意の合言葉（引き継ぎコード）を設定してクラウドにデータを保存・復元できます。
-          </p>
-
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">クラウド保存用の合言葉（引き継ぎコード）</label>
-              <input
-                type="text"
-                value={cloudKey}
-                onChange={(e) => setCloudKey(e.target.value)}
-                placeholder="例: my-secret-code-2026"
-                className="w-full md:w-1/2 bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-purple-300 font-mono text-xs focus:border-purple-500 focus:outline-none"
-              />
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={handleCloudSave}
-                className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition shadow-md"
-              >
-                ☁️ クラウドへデータを保存
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCloudLoad}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2.5 rounded-xl text-xs transition"
-              >
-                📂 クラウドからデータを読み込み
-              </button>
-            </div>
+        {/* ゲスト向けの案内：ログインすると、データを引き継いで、他の端末でも使える */}
+        {!settings.userEmail && (
+          <div className="glass-panel p-6 rounded-3xl border border-purple-500/30 bg-purple-950/10 space-y-2">
+            <h3 className="text-lg font-black text-purple-400 flex items-center space-x-2">
+              <span>🔑 他の端末でも使いたいとき</span>
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              いまはログインしていないため、この端末の中だけのデータです。Googleアカウントでログインすると、
+              <b className="text-slate-200">この端末の対戦記録・ランクが、そのままアカウントに引き継がれ</b>、
+              他の端末でも、ログインするだけで同じデータを使えます。
+            </p>
           </div>
-        </div>
+        )}
 
         {/* 👥 フォロー中のプレイヤー一覧 */}
         {followingList.length > 0 && (
