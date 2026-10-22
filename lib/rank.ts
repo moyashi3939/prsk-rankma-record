@@ -204,3 +204,11 @@ export function validateStart(input: {
 
   return { ok: true, value: { rankName, classIndex, grains } };
 }
+
+// ランク状態を、画面・通知に出す文章にする（例: 「プラチナ クラス 2 3粒」）
+export function describeRankState(state: RankState): string {
+  if (!state.isPlacementCompleted) return `判定マッチ ${state.placementMatchesPlayed}/${PLACEMENT_MATCHES}戦`;
+  if (state.rankName === PLACEMENT_NAME) return '判定マッチ完了（アプリでランクを選んでください）';
+  if (state.rankName === MASTER) return `${MASTER} ${state.grains}粒`;
+  return `${state.rankName} クラス ${state.classIndex + 1} ${state.grains}粒`;
+}

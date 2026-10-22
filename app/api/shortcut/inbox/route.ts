@@ -13,10 +13,12 @@ export async function GET() {
 
     await ensureShortcutTables();
     const res = await query(
-      'SELECT id, size, created_at FROM shortcut_uploads WHERE owner_id = $1 ORDER BY id ASC',
+      'SELECT id, size, reason, created_at FROM shortcut_uploads WHERE owner_id = $1 ORDER BY id ASC',
       [email]
     );
-    return NextResponse.json(res.rows.map((r) => ({ id: r.id, size: r.size, createdAt: r.created_at })));
+    return NextResponse.json(
+      res.rows.map((r) => ({ id: r.id, size: r.size, reason: r.reason, createdAt: r.created_at }))
+    );
   } catch (error) {
     console.error('受信箱の取得エラー:', error);
     return NextResponse.json({ error: 'Failed to fetch inbox' }, { status: 500 });

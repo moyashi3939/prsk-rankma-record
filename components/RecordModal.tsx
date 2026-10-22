@@ -4,12 +4,13 @@ import { useState, useEffect } from 'react';
 import {
   analyzeResultImage,
   describeWeakest,
-  findJacketMatches,
   OCR_TRUST_LOW,
   type JacketHash,
   type JacketRecord,
   type OcrResult,
 } from '@/lib/resultOcr';
+import { calcMatch } from '@/lib/matchCalc';
+import { classifyDifficultyByColor, identifySong, isUsableRingColor, type DifficultyColor } from '@/lib/songMatch';
 
 interface SongFromDB {
   id: number;
@@ -48,7 +49,8 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrNote, setOcrNote] = useState(''); // 読み取り結果についての注意書き
   const [jackets, setJackets] = useState<JacketRecord[]>([]); // 保存済みの曲ジャケット
-  const [inbox, setInbox] = useState<{ id: number }[]>([]); // ショートカットから届いた画像（受信箱）
+  const [inbox, setInbox] = useState<{ id: number; reason?: string | null }[]>([]); // ショートカットから届いた、確認待ちの画像（受信箱）
+  const [difficultyColors, setDifficultyColors] = useState<DifficultyColor[]>([]); // 覚えている、難易度ごとの枠の色
   const [pendingJacket, setPendingJacket] = useState<JacketHash | null>(null); // 単発モードで読み取ったジャケット
   const [candidates, setCandidates] = useState<SongFromDB[]>([]); // 単発モードの曲の候補（総ノーツ数が同じ曲）
 
@@ -93,6 +95,16 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
           setJackets([]);
         });
 
+      // 難易度ごとの「ジャケットのまわりの色」（難易度の判別に使う）
+      fetch('/api/difficulty-colors')
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) setDifficultyColors(data);
+        })
+        .catch(() => {
+          setDifficultyColors([]);
+        });
+
       // ショートカットから届いた画像（ログイン中のみ）
       fetch('/api/shortcut/inbox', { cache: 'no-store' })
         .then((res) => res.json())
@@ -113,7 +125,8 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
   };
 
   // OCR結果をフォームの値に変換する。
-  // 曲は「ジャケット」で曲名を絞り、「自分の判定の合計＝総ノーツ数」で譜面（難易度）を決める
+  // 曲・難易度は、ジャケット・総ノーツ数（自分の判定の合計）・ジャケットのまわりの色から決める（lib/songMatch.ts）。
+  // 決まったものを入力したうえで、念のため、他の候補も出す。
   const applyOcr = (ocr: OcrResult, base: typeof initialFormState) => {
     const m = ocr.me;
     const o = ocr.opponent;
@@ -133,7 +146,6 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
     };
 
     const notes: string[] = [];
-    let choices: SongFromDB[] = []; // 曲を1つに決められなかったときの候補
 
     const mine = [m.perfect, m.great, m.good, m.bad, m.miss];
     const total = mine.every((v) => v !== null) ? (mine as number[]).reduce((a, b) => a + b, 0) : null;
@@ -141,83 +153,30 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
       notes.push('自分の判定を読み取れなかった項目があります。手動で入力してください。');
     }
 
-    const applyChart = (chart: SongFromDB) => {
-      form.songNameInput = chart.song_name;
-      form.difficulty = chart.difficulty;
-      form.level = String(chart.level);
-    };
+    const id = identifySong({
+      total,
+      jacketHex: ocr.jacket?.hex ?? null,
+      ring: ocr.jacket?.ring ?? null,
+      preferredDifficulty: base.difficulty,
+      songs,
+      jackets,
+      difficultyColors,
+    });
 
-    // 1) ジャケットに近い曲（近い順）
-    const jacketMatches = ocr.jacket ? findJacketMatches(ocr.jacket.hex, jackets) : [];
-    let decided = false;
-
-    if (jacketMatches.length > 0) {
-      const names = jacketMatches.map((j) => j.songName);
-      const rank = (s: SongFromDB) => names.indexOf(s.song_name);
-
-      // ジャケットが近い曲のうち、総ノーツ数が合う譜面
-      const charts = total === null ? [] : songs.filter((s) => names.includes(s.song_name) && Number(s.total_notes) === total);
-
-      if (charts.length > 0) {
-        const bestRank = Math.min(...charts.map(rank));
-        const best = charts.filter((s) => rank(s) === bestRank); // いちばんジャケットが近い曲の譜面
-        if (best.length === 1) {
-          applyChart(best[0]);
-          decided = true;
-        } else {
-          // 同じ曲で総ノーツ数が同じ譜面が複数あるときは、選択中の難易度で決める
-          const same = best.filter((s) => s.difficulty === base.difficulty);
-          if (same.length === 1) {
-            applyChart(same[0]);
-          } else {
-            form.songNameInput = best[0].song_name;
-            choices = best;
-            notes.push('同じ曲で総ノーツ数が同じ譜面が複数あります。下の候補から選んでください。');
-          }
-          decided = true;
-        }
-      } else {
-        // 曲名だけ分かった場合
-        form.songNameInput = jacketMatches[0].songName;
-        decided = true;
-        notes.push(
-          total === null
-            ? `ジャケットから「${jacketMatches[0].songName}」と判断しました。難易度を選んでください。`
-            : `ジャケットから「${jacketMatches[0].songName}」と判断しましたが、総ノーツ数 ${total} の譜面が見つかりません。難易度を確認してください。`
-        );
-      }
+    if (id.chart) {
+      form.songNameInput = id.chart.song_name;
+      form.difficulty = id.chart.difficulty;
+      form.level = String(id.chart.level);
+    } else if (id.songName) {
+      form.songNameInput = id.songName;
     }
-
-    // 2) ジャケットで決まらなかったときは、総ノーツ数だけで探す
-    if (!decided && total !== null) {
-      const sameNotes = songs.filter((s) => Number(s.total_notes) === total);
-
-      if (sameNotes.length === 1) {
-        applyChart(sameNotes[0]);
-      } else if (sameNotes.length > 1) {
-        // 総ノーツ数が同じ曲が複数あるときは、候補として出す
-        choices = sameNotes;
-
-        // 選択中の難易度で1曲に絞れたときは、そのまま入力する（候補も残すので、違うときは選び直せる）
-        const sameDiff = sameNotes.filter((s) => s.difficulty === base.difficulty);
-        if (sameDiff.length === 1) {
-          applyChart(sameDiff[0]);
-          notes.push(
-            `総ノーツ数 ${total} の曲が${sameNotes.length}件ありましたが、選択中の難易度（${base.difficulty}）で1曲に絞れたため入力しました。違う場合は下の候補から選び直してください。`
-          );
-        } else {
-          notes.push(`総ノーツ数 ${total} に当てはまる曲が${sameNotes.length}件あります。下の候補から選んでください。`);
-        }
-      } else {
-        notes.push(`総ノーツ数 ${total} の曲が登録されていません。曲名と難易度は手動で入力してください。`);
-      }
-    }
+    notes.push(...id.reasons);
 
     if (ocr.trust < OCR_TRUST_LOW) {
       notes.push(`読み取りに自信がない項目があります（${describeWeakest(ocr.weakest)}）。数値を確認してください。`);
     }
 
-    return { form, note: notes.join(' '), candidates: choices };
+    return { form, note: notes.join(' '), candidates: id.others as SongFromDB[] };
   };
 
   // 保存した曲にまだジャケットがなければ、読み取ったジャケットをその曲として登録する
@@ -236,6 +195,19 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
     })
       .then(() => setJackets((prev) => [...prev, { songName: name, hex: jacket.hex }]))
       .catch((err) => console.error('ジャケット登録エラー:', err));
+  };
+
+  // 保存した譜面の難易度と、ジャケットのまわりの色を結びつけて覚える（次から、色で難易度を判別できるようにする）
+  const learnDifficultyColor = (jacket: JacketHash | null | undefined) => {
+    const ring = jacket?.ring;
+    if (!isUsableRingColor(ring)) return;
+    if (!['EXPERT', 'MASTER', 'APPEND'].includes(matchForm.difficulty)) return;
+
+    fetch('/api/difficulty-colors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ difficulty: matchForm.difficulty, r: ring.r, g: ring.g, b: ring.b }),
+    }).catch((err) => console.error('難易度の色の登録エラー:', err));
   };
 
   // いま確認中の画像のジャケット・曲の候補（確認用の表示に使う）
@@ -378,59 +350,40 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
   };
 
   const processSubmitData = () => {
-    learnJacket(mode === 'batch' ? batchResults[batchCurrentIndex]?.jacket : pendingJacket);
+    const currentJacketForSave = mode === 'batch' ? batchResults[batchCurrentIndex]?.jacket : pendingJacket;
+    learnJacket(currentJacketForSave);
+    learnDifficultyColor(currentJacketForSave);
 
     const currentSongData = songs.find((s) => s.song_name === matchForm.songNameInput && s.difficulty === matchForm.difficulty);
-    const totalNotes = currentSongData ? currentSongData.total_notes : (
-      (parseInt(matchForm.myPerfect) || 0) + (parseInt(matchForm.myGreat) || 0) + (parseInt(matchForm.myGood) || 0) + (parseInt(matchForm.myBad) || 0) + (parseInt(matchForm.myMiss) || 0)
-    );
 
-    const myPer = parseInt(matchForm.myPerfect) || 0;
-    const myGr = parseInt(matchForm.myGreat) || 0;
-    const myGo = parseInt(matchForm.myGood) || 0;
-    const myBd = parseInt(matchForm.myBad) || 0;
-    const myMs = parseInt(matchForm.myMiss) || 0;
-
-    const oppGr = parseInt(matchForm.oppGreat) || 0;
-    const oppGo = parseInt(matchForm.oppGood) || 0;
-    const oppBd = parseInt(matchForm.oppBad) || 0;
-    const oppMs = parseInt(matchForm.oppMiss) || 0;
-
-    const myCalculatedPerf = myPer > 0 ? myPer : Math.max(0, totalNotes - (myGr + myGo + myBd + myMs));
-    const oppCalculatedPerf = Math.max(0, totalNotes - (oppGr + oppGo + oppBd + oppMs));
-
-    const calculateScore = (perf: number, great: number, good: number) => perf * 3 + great * 2 + good * 1;
-    const myCalculatedScore = calculateScore(myCalculatedPerf, myGr, myGo);
-    const oppCalculatedScore = calculateScore(oppCalculatedPerf, oppGr, oppGo);
-
-    const myDamage = myMs * 80 + myBd * 50;
-    const myRemainingLife = Math.max(0, 1000 - myDamage);
-    const isLifeZero = myRemainingLife <= 0;
-
-    const isAP = myGr === 0 && myGo === 0 && myBd === 0 && myMs === 0 && myCalculatedPerf > 0;
-    const isFC = !isAP && myGo === 0 && myBd === 0 && myMs === 0 && (myCalculatedPerf > 0 || myGr > 0);
-    const oppIsAP = oppGr === 0 && oppGo === 0 && oppBd === 0 && oppMs === 0 && oppCalculatedPerf > 0;
-
-    let result: 'WIN' | 'LOSE' | 'DRAW' = 'DRAW';
-    if (myCalculatedScore > oppCalculatedScore) result = 'WIN';
-    else if (myCalculatedScore < oppCalculatedScore) result = 'LOSE';
-
-    const isBothAP = result === 'DRAW' && isAP && oppIsAP;
+    // スコア・勝敗・AP/FC などの計算（lib/matchCalc.ts。サーバーの自動登録と同じ計算）
+    const calc = calcMatch({
+      totalNotes: currentSongData ? Number(currentSongData.total_notes) : 0,
+      myPerfect: parseInt(matchForm.myPerfect) || 0,
+      myGreat: parseInt(matchForm.myGreat) || 0,
+      myGood: parseInt(matchForm.myGood) || 0,
+      myBad: parseInt(matchForm.myBad) || 0,
+      myMiss: parseInt(matchForm.myMiss) || 0,
+      oppGreat: parseInt(matchForm.oppGreat) || 0,
+      oppGood: parseInt(matchForm.oppGood) || 0,
+      oppBad: parseInt(matchForm.oppBad) || 0,
+      oppMiss: parseInt(matchForm.oppMiss) || 0,
+    });
 
     onSubmit({
       ...matchForm,
       songName: matchForm.songNameInput,
       difficulty: matchForm.difficulty,
       level: matchForm.level,
-      myPerf: myCalculatedPerf,
-      oppPerf: oppCalculatedPerf,
-      myScore: myCalculatedScore,
-      oppScore: oppCalculatedScore,
-      myIsAP: isAP,
-      myIsFC: isFC,
-      isLifeZero,
-      isBothAP,
-      result,
+      myPerf: calc.myPerf,
+      oppPerf: calc.oppPerf,
+      myScore: calc.myScore,
+      oppScore: calc.oppScore,
+      myIsAP: calc.myIsAP,
+      myIsFC: calc.myIsFC,
+      isLifeZero: calc.isLifeZero,
+      isBothAP: calc.isBothAP,
+      result: calc.result,
     });
 
     // ショートカットから届いた画像だったら、保存したので受信箱から消す
@@ -536,10 +489,11 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
         {inbox.length > 0 && batchResults.length === 0 && (
           <div className="bg-amber-950/20 border border-amber-500/40 p-4 rounded-2xl flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-bold text-amber-300">📥 ショートカットから届いた画像が {inbox.length} 枚あります</p>
+              <p className="text-xs font-bold text-amber-300">📥 確認待ちの画像が {inbox.length} 枚あります</p>
               <p className="text-[10px] text-slate-400 mt-0.5">
-                取り込むと、1枚ずつ確認しながら登録できます。保存した画像は、受信箱から消えます。
+                ショートカットで送った画像のうち、読み取りに自信がなかったものです（自信があるものは、自動で登録されています）。取り込むと、1枚ずつ確認しながら登録できます。
               </p>
+              {inbox[0]?.reason && <p className="text-[10px] text-slate-500 mt-0.5">例）{inbox[0].reason}</p>}
             </div>
             <button
               type="button"
@@ -603,15 +557,34 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
 
         {currentJacket && (
           <div className="flex items-center gap-3 text-[10px] text-slate-400">
-            <img src={currentJacket.preview} alt="読み取ったジャケット" className="w-12 h-12 rounded-lg border border-white/10" />
-            <span>読み取ったジャケット（曲の特定に使います。ジャケット以外が写っているときは、位置の調整が必要です）</span>
+            <img src={currentJacket.preview} alt="読み取ったジャケット" className="w-12 h-12 rounded-lg border border-white/10 shrink-0" />
+            <div className="space-y-1">
+              <p>読み取ったジャケット（曲の特定に使います。ジャケット以外が写っているときは、位置の調整が必要です）</p>
+              {currentJacket.ring && (
+                <p className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-3 h-3 rounded-sm border border-white/20"
+                    style={{ backgroundColor: `rgb(${currentJacket.ring.r}, ${currentJacket.ring.g}, ${currentJacket.ring.b})` }}
+                  />
+                  <span>
+                    枠の色
+                    {(() => {
+                      const d = classifyDifficultyByColor(currentJacket.ring, difficultyColors);
+                      return d ? `：${d} に見えます` : '：難易度を判別できませんでした';
+                    })()}
+                  </span>
+                </p>
+              )}
+            </div>
           </div>
         )}
 
         {currentCandidates.length > 0 && (
           <div className="space-y-2">
             <p className="text-[10px] text-slate-400">
-              総ノーツ数が同じ曲の候補です。選ぶと曲名・難易度が入力されます（保存すると、この画像のジャケットがその曲として登録されます）。
+              {matchForm.songNameInput
+                ? '他の候補です。違うときは、選び直せます（保存すると、この画像のジャケットが、選んだ曲として登録されます）。'
+                : '候補です。選ぶと曲名・難易度が入力されます（保存すると、この画像のジャケットが、その曲として登録されます）。'}
             </p>
             <div className="flex flex-wrap gap-2">
               {currentCandidates.slice(0, 12).map((c) => (
@@ -628,9 +601,6 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
                 </button>
               ))}
             </div>
-            {currentCandidates.length > 12 && (
-              <p className="text-[10px] text-slate-500">ほか {currentCandidates.length - 12} 件は、曲名を入力して探してください。</p>
-            )}
           </div>
         )}
 

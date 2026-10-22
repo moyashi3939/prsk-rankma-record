@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# サーバーでのOCR（tesseract.js）の言語データのキャッシュ
+.tesseract-cache/
+*.traineddata

@@ -167,10 +167,47 @@ export function ensureShortcutTables(): Promise<void> {
         );
       `);
       await query(`CREATE INDEX IF NOT EXISTS shortcut_uploads_owner_idx ON shortcut_uploads (owner_id, id)`);
+      // 同じ画像を2回送ってしまったときに、二重に登録しないためのハッシュ
+      await query(`ALTER TABLE shortcut_uploads ADD COLUMN IF NOT EXISTS sha256 VARCHAR(64)`);
+      // 受信箱（保留）に入れた理由
+      await query(`ALTER TABLE shortcut_uploads ADD COLUMN IF NOT EXISTS reason TEXT`);
+      // 自動で登録した・取り込み済みの画像のハッシュ（30日で消える）
+      await query(`
+        CREATE TABLE IF NOT EXISTS shortcut_processed (
+          owner_id VARCHAR(255) NOT NULL,
+          sha256 VARCHAR(64) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (owner_id, sha256)
+        );
+      `);
     })().catch((err) => {
       shortcutTablesEnsured = null;
       throw err;
     });
   }
   return shortcutTablesEnsured;
+}
+
+// 難易度ごとの「ジャケットのまわりの色」を、記録した画像から覚えておくテーブル（全員で共通）
+let difficultyColorsEnsured: Promise<void> | null = null;
+
+export function ensureDifficultyColors(): Promise<void> {
+  if (!difficultyColorsEnsured) {
+    difficultyColorsEnsured = (async () => {
+      await query(`
+        CREATE TABLE IF NOT EXISTS difficulty_colors (
+          difficulty VARCHAR(20) PRIMARY KEY,
+          r REAL NOT NULL,
+          g REAL NOT NULL,
+          b REAL NOT NULL,
+          n INT NOT NULL DEFAULT 1,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    })().catch((err) => {
+      difficultyColorsEnsured = null;
+      throw err;
+    });
+  }
+  return difficultyColorsEnsured;
 }

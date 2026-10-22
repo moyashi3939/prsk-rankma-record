@@ -3,8 +3,11 @@
 import { useState, useEffect } from 'react';
 import RecordModal from '@/components/RecordModal';
 import Link from 'next/link';
+import { FOOTER_NOTE, UPDATES } from '@/lib/siteContent';
 
 const CLASSES = ['クラス 1', 'クラス 2', 'クラス 3', 'クラス 4'];
+const latestUpdate = UPDATES[0] ?? null; // ホーム画面の「お知らせ」に出す、最新のアップデート情報
+
 const RANKS = ['ルーキー', 'ブロンズ', 'シルバー', 'ゴールド', 'プラチナ', 'ダイヤモンド', 'マスター'];
 
 export default function Home() {
@@ -244,7 +247,20 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#080910] text-white selection:bg-pink-500 selection:text-white pb-16 pt-8 px-6 space-y-8">
       <main className="max-w-6xl mx-auto space-y-8">
-        
+
+        {/* 📢 お知らせ（最新のアップデート情報） */}
+        {latestUpdate && (
+          <Link
+            href="/updates"
+            className="flex items-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl px-5 py-3 transition"
+          >
+            <span className="text-xs font-bold text-amber-300 shrink-0">📢 お知らせ</span>
+            <span className="text-[11px] text-slate-400 font-mono shrink-0">{latestUpdate.date}</span>
+            <span className="text-xs text-white truncate flex-1">{latestUpdate.title}</span>
+            <span className="text-[11px] text-slate-400 shrink-0 hidden sm:inline">アップデート情報 →</span>
+          </Link>
+        )}
+
         {/* メインステージ・カード */}
         <div className="glass-panel rounded-3xl p-8 relative overflow-hidden neon-glow-pink border border-white/10">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative z-10">
@@ -405,6 +421,22 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        {/* フッター：アップデート情報・利用規約・スペシャルサンクス */}
+        <footer className="border-t border-white/10 pt-6 space-y-3 text-center">
+          <nav className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs">
+            <Link href="/updates" className="text-slate-400 hover:text-white transition">
+              📢 アップデート情報
+            </Link>
+            <Link href="/terms" className="text-slate-400 hover:text-white transition">
+              📄 利用規約
+            </Link>
+            <Link href="/credits" className="text-slate-400 hover:text-white transition">
+              🎉 スペシャルサンクス
+            </Link>
+          </nav>
+          {FOOTER_NOTE && <p className="text-[10px] text-slate-500">{FOOTER_NOTE}</p>}
+        </footer>
       </main>
 
       <RecordModal isOpen={showRecordModal} onClose={() => setShowRecordModal(false)} onSubmit={handleRecordSubmit} />

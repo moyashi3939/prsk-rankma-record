@@ -39,6 +39,13 @@ export async function DELETE(_request: Request, { params }: Context) {
     if (!Number.isInteger(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
     await ensureShortcutTables();
+    // 同じ画像をもう一度送ってしまっても、二重に登録しないように、画像のハッシュを覚えておく
+    await query(
+      `INSERT INTO shortcut_processed (owner_id, sha256)
+       SELECT owner_id, sha256 FROM shortcut_uploads WHERE id = $1 AND owner_id = $2 AND sha256 IS NOT NULL
+       ON CONFLICT DO NOTHING`,
+      [id, email]
+    );
     await query('DELETE FROM shortcut_uploads WHERE id = $1 AND owner_id = $2', [id, email]);
     return NextResponse.json({ success: true });
   } catch (error) {
