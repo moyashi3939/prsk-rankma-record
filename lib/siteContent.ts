@@ -23,6 +23,21 @@ export interface UpdateEntry {
 
 export const UPDATES: UpdateEntry[] = [
   {
+    date: '2026-10-26',
+    title: 'ランク別に選曲範囲を設定しました',
+    items: [
+      'ランク	          EXPERT / MASTER	   APPEND',
+      'ビギナー            Lv.18〜25 	       なし',
+      'ブロンズ            Lv.23〜26	       なし',
+      'シルバー	           Lv.25〜28         なし',
+      'ゴールド	           Lv.26〜30	       なし',
+      'プラチナ	           Lv.28〜31	       なし',
+      'ダイヤモンド         Lv.29〜32	     Lv.27〜30',
+      'マスター	           Lv.30〜37	     Lv.28〜38',
+      '※シルバー以下は、ハードも含みます',
+    ],
+  },
+  {
     date: '2026-10-21',
     title: 'リザルト画像から、曲を自動で判別できるようになりました',
     items: [

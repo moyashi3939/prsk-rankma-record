@@ -401,7 +401,12 @@ export default function Home() {
         </footer>
       </main>
 
-      <RecordModal isOpen={showRecordModal} onClose={() => setShowRecordModal(false)} onSubmit={handleRecordSubmit} />
+      <RecordModal
+        isOpen={showRecordModal}
+        onClose={() => setShowRecordModal(false)}
+        onSubmit={handleRecordSubmit}
+        rankName={rankData.isPlacementCompleted ? rankData.rankName : null}
+      />
 
       {/* 最初の状態を選ぶモーダル（初めて使うとき・データ初期化のあと） */}
       {!loading &&

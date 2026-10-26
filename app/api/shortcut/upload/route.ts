@@ -2,7 +2,7 @@
 import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { ensureDifficultyColors, ensureShortcutTables, ensureSongJackets } from '@/lib/schema';
+import { ensureDifficultyColors, ensureOwnerColumns, ensureShortcutTables, ensureSongJackets } from '@/lib/schema';
 import { ownerFromBearer } from '@/lib/apiToken';
 import { analyzeResultBuffer, isServerOcrAvailable } from '@/lib/serverOcr';
 import { describeWeakest, type OcrResult } from '@/lib/ocrCore';
@@ -165,10 +165,12 @@ export async function POST(request: Request) {
       // 曲・ジャケット・難易度の色のデータを読み込む
       await ensureSongJackets();
       await ensureDifficultyColors();
-      const [songsRes, jacketsRes, colorsRes] = await Promise.all([
+      await ensureOwnerColumns();
+      const [songsRes, jacketsRes, colorsRes, rankRes] = await Promise.all([
         query('SELECT id, song_name, difficulty, level, total_notes FROM songs'),
         query('SELECT song_name, hex FROM song_jackets'),
         query('SELECT difficulty, r, g, b FROM difficulty_colors'),
+        query('SELECT rank_name FROM rank_status WHERE owner_id = $1 LIMIT 1', [owner]),
       ]);
 
       const m = ocr.me;
@@ -182,6 +184,7 @@ export async function POST(request: Request) {
         songs: songsRes.rows as SongRow[],
         jackets: jacketsRes.rows.map((r) => ({ songName: r.song_name, hex: r.hex })),
         difficultyColors: colorsRes.rows as DifficultyColor[],
+        rankName: rankRes.rows[0]?.rank_name ?? null, // いまのランクの選曲範囲を、手がかりにする
       });
 
       const judged = judgeAutoRegister(ocr, identify);

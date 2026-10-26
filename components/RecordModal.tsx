@@ -11,6 +11,7 @@ import {
 } from '@/lib/resultOcr';
 import { calcMatch } from '@/lib/matchCalc';
 import { toast } from '@/lib/toast';
+import { rankRangeTier } from '@/lib/rankRanges';
 import { classifyDifficultyByColor, identifySong, isUsableRingColor, type DifficultyColor } from '@/lib/songMatch';
 
 interface SongFromDB {
@@ -25,6 +26,7 @@ interface RecordModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (recordData: any) => void;
+  rankName?: string | null; // いまのランク（ランクごとの選曲範囲を、曲の判別の手がかりにする）
 }
 
 const initialFormState = {
@@ -43,7 +45,7 @@ const initialFormState = {
   oppMiss: '',
 };
 
-export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalProps) {
+export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: RecordModalProps) {
   const [songs, setSongs] = useState<SongFromDB[]>([]);
   const [matchForm, setMatchForm] = useState(initialFormState);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -160,6 +162,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
       jacketHex: ocr.jacket?.hex ?? null,
       ring: ocr.jacket?.ring ?? null,
       preferredDifficulty: base.difficulty,
+      rankName,
       songs,
       jackets,
       difficultyColors,
@@ -602,6 +605,9 @@ export default function RecordModal({ isOpen, onClose, onSubmit }: RecordModalPr
                   <span className="ml-1.5 text-[10px] text-cyan-300">
                     {c.difficulty} Lv.{c.level}
                   </span>
+                  {rankRangeTier(rankName, c.difficulty, c.level) === 2 && (
+                    <span className="ml-1.5 text-[9px] font-normal text-amber-300">ランク範囲外</span>
+                  )}
                 </button>
               ))}
             </div>

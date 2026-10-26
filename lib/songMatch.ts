@@ -2,6 +2,7 @@
 // 読み取った「判定の合計（総ノーツ数）」「ジャケット」「ジャケットのまわりの色」から、曲と難易度を決める。
 // 記録画面（ブラウザ）と、iOSショートカットの自動登録（サーバー）で同じ判断をするための共通のコード。
 import { findJacketMatches, jacketDistance, normalizeJacketHex, type JacketRecord, type RGB } from '@/lib/ocrCore';
+import { rankRangeTier } from '@/lib/rankRanges';
 
 export interface SongRow {
   id?: number;
@@ -94,6 +95,7 @@ export interface IdentifyInput {
   jacketHex: string | null;
   ring: RGB | null;
   preferredDifficulty?: string; // いま画面で選んでいる難易度（ヒント）
+  rankName?: string | null; // いまのランク（ランクごとの選曲範囲を、手がかりにする。判定マッチ中は null でよい）
   songs: SongRow[];
   jackets: JacketRecord[];
   difficultyColors?: DifficultyColor[];
@@ -118,6 +120,18 @@ const keyOf = (s: SongRow) => `${s.song_name}\u0000${s.difficulty}`;
 export function identifySong(input: IdentifyInput): IdentifyResult {
   const { total, songs, jackets } = input;
   const reasons: string[] = [];
+
+  // その譜面が、いまのランクで出る曲か（0=範囲内 / 1=となりのランクの範囲内 / 2=範囲外 / null=判定できない）
+  const tier = (s: SongRow) => rankRangeTier(input.rankName, s.difficulty, s.level);
+
+  // 候補のうち、いまのランクに近いものだけに絞る（判定できないときや、全部同じなら、そのまま）
+  const narrowByRank = (list: SongRow[]): SongRow[] => {
+    const tiers = list.map(tier);
+    if (tiers.some((t) => t === null)) return list;
+    const best = Math.min(...(tiers as number[]));
+    const narrowed = list.filter((_, i) => tiers[i] === best);
+    return narrowed.length < list.length ? narrowed : list;
+  };
 
   const byNotes = total === null ? [] : songs.filter((s) => notesOf(s) === total);
   const colorDifficulty = classifyDifficultyByColor(input.ring, input.difficultyColors);
@@ -148,10 +162,15 @@ export function identifySong(input: IdentifyInput): IdentifyResult {
           reasons.push(`枠の色は ${colorDifficulty} に見えますが、ノーツ数が合う譜面は ${chart.difficulty} です。念のため確認してください。`);
         }
       } else {
-        // 同じ曲で総ノーツ数が同じ譜面が複数ある → 枠の色、なければ選択中の難易度で決める
-        const byColor = colorDifficulty ? top.filter((s) => s.difficulty === colorDifficulty) : [];
-        const byPreferred = top.filter((s) => s.difficulty === input.preferredDifficulty);
-        if (byColor.length === 1) {
+        // 同じ曲で総ノーツ数が同じ譜面が複数ある → ランクの選曲範囲、枠の色、選択中の難易度の順で決める
+        const topPool = narrowByRank(top);
+        const byColor = colorDifficulty ? topPool.filter((s) => s.difficulty === colorDifficulty) : [];
+        const byPreferred = topPool.filter((s) => s.difficulty === input.preferredDifficulty);
+        if (topPool.length === 1) {
+          chart = topPool[0];
+          confidence = 'medium';
+          reasons.push(`同じ曲で総ノーツ数が同じ譜面が複数あったため、現在のランク（${input.rankName}）の選曲範囲で決めました。`);
+        } else if (byColor.length === 1) {
           chart = byColor[0];
           confidence = 'medium';
           reasons.push(`同じ曲で総ノーツ数が同じ譜面が複数あったため、ジャケットの枠の色（${colorDifficulty}）で決めました。`);
@@ -173,15 +192,20 @@ export function identifySong(input: IdentifyInput): IdentifyResult {
       );
     }
   } else if (total !== null) {
-    // ---- ジャケットでは決まらない → 総ノーツ数（と、枠の色）で探す ----
+    // ---- ジャケットでは決まらない → 総ノーツ数（と、ランクの選曲範囲・枠の色）で探す ----
     if (byNotes.length === 1) {
       chart = byNotes[0];
       confidence = 'medium';
       reasons.push('ジャケットは未登録ですが、総ノーツ数から曲が1つに決まりました。内容を確認してください。');
     } else if (byNotes.length > 1) {
-      const byColor = colorDifficulty ? byNotes.filter((s) => s.difficulty === colorDifficulty) : [];
-      const byPreferred = byNotes.filter((s) => s.difficulty === input.preferredDifficulty);
-      if (byColor.length === 1) {
+      const pool = narrowByRank(byNotes);
+      const byColor = colorDifficulty ? pool.filter((s) => s.difficulty === colorDifficulty) : [];
+      const byPreferred = pool.filter((s) => s.difficulty === input.preferredDifficulty);
+      if (pool.length === 1) {
+        chart = pool[0];
+        confidence = 'low';
+        reasons.push(`総ノーツ数 ${total} の曲が${byNotes.length}件ありましたが、現在のランク（${input.rankName}）の選曲範囲で1曲に絞りました。違う場合は、下の候補から選び直してください。`);
+      } else if (byColor.length === 1) {
         chart = byColor[0];
         confidence = 'low';
         reasons.push(`総ノーツ数 ${total} の曲が${byNotes.length}件ありましたが、ジャケットの枠の色（${colorDifficulty}）で1曲に絞りました。違う場合は、下の候補から選び直してください。`);
@@ -195,6 +219,15 @@ export function identifySong(input: IdentifyInput): IdentifyResult {
     } else {
       reasons.push(`総ノーツ数 ${total} の曲が登録されていません。曲名と難易度は手動で入力してください。`);
     }
+  }
+
+  // ---- 決まった譜面が、いまのランクの選曲範囲から外れているときは、確信度を下げる ----
+  if (chart && tier(chart) === 2) {
+    if (confidence === 'high') confidence = 'medium';
+    else if (confidence === 'medium') confidence = 'low';
+    reasons.push(
+      `この曲（${chart.difficulty} Lv.${chart.level}）は、現在のランク（${input.rankName}）の選曲範囲から外れています。念のため確認してください。`
+    );
   }
 
   // ---- 他の候補 ----
@@ -215,21 +248,21 @@ export function identifySong(input: IdentifyInput): IdentifyResult {
     }
   }
 
-  const candidates: { song: SongRow; score: number }[] = [];
+  const candidates: { song: SongRow; score: number; tier: number }[] = [];
   for (const s of songs) {
     const nearJacket = near.has(s.song_name);
     const sameNotes = total !== null && notesOf(s) === total;
     if (!nearJacket && !sameNotes) continue;
-    // 小さいほど先に出す: ジャケットも合う ＞ ノーツ数だけ合う ＞ ジャケットだけ近い
+    // 小さいほど先に出す: ジャケットも合う ＞ ノーツ数だけ合う ＞ ジャケットだけ近い。同じなら、ランクの範囲に近いものを先に
     const score = nearJacket && sameNotes ? 0 : sameNotes ? 1 : 2;
-    candidates.push({ song: s, score });
+    candidates.push({ song: s, score, tier: tier(s) ?? 0 });
   }
 
   const seen = new Set<string>();
   if (chart) seen.add(keyOf(chart));
   const others: SongRow[] = [];
   candidates
-    .sort((a, b) => a.score - b.score || a.song.song_name.localeCompare(b.song.song_name, 'ja'))
+    .sort((a, b) => a.score - b.score || a.tier - b.tier || a.song.song_name.localeCompare(b.song.song_name, 'ja'))
     .forEach(({ song }) => {
       const k = keyOf(song);
       if (!seen.has(k) && others.length < MAX_OTHERS) {
