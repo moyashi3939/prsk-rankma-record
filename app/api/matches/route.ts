@@ -3,9 +3,11 @@ import { NextResponse } from 'next/server';
 import { query, getClient } from '@/lib/db';
 import { ensureOwnerColumns } from '@/lib/schema';
 import { getOwnerId } from '@/lib/session';
+import { actualResultOf } from '@/lib/matchCalc'; // 追加
 
 // 対戦レコードの保存
 export async function POST(request: Request) {
+  const client = await getClient(); // トランザクション用にclientを取得
   try {
     const body = await request.json();
     const {
@@ -26,6 +28,7 @@ export async function POST(request: Request) {
       myScore,
       oppScore,
       result,
+      isBothAP, // フロントエンドから渡される想定（またはここで判定）
     } = body;
 
     if (!result) {
@@ -35,6 +38,12 @@ export async function POST(request: Request) {
     await ensureOwnerColumns();
     const owner = await getOwnerId();
 
+    // 引き分け＋両者APの場合の勝ち扱いを反映
+    const finalResult = actualResultOf(result, isBothAP || false);
+
+    await client.query('BEGIN');
+
+    // 1. 対戦レコードの挿入
     const queryText = `
       INSERT INTO matches (
         song_name, difficulty, level, is_opponent_higher,
@@ -62,15 +71,35 @@ export async function POST(request: Request) {
       parseInt(oppMiss) || 0,
       parseInt(myScore) || 0,
       parseInt(oppScore) || 0,
-      result,
+      finalResult, // 補正後の結果を保存
       owner,
     ];
 
-    const res = await query(queryText, values);
+    const res = await client.query(queryText, values);
+
+    // 2. 勝敗から粒の増減を計算（WIN 系は +1、LOSE は -1、DRAW は 0）
+    let grainDelta = 0;
+    if (finalResult.includes('WIN')) grainDelta = +1;
+    else if (finalResult === 'LOSE') grainDelta = -1;
+
+    // 3. 自分の rank_status の粒を増減させる
+    if (grainDelta !== 0) {
+      await client.query(
+        `UPDATE rank_status
+         SET grains = GREATEST(0, grains + $1), updated_at = CURRENT_TIMESTAMP
+         WHERE owner_id = $2`,
+        [grainDelta, owner]
+      );
+    }
+
+    await client.query('COMMIT');
     return NextResponse.json({ success: true, match: res.rows[0] });
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('対戦レコード保存エラー:', error);
     return NextResponse.json({ error: 'Failed to save match' }, { status: 500 });
+  } finally {
+    client.release();
   }
 }
 
