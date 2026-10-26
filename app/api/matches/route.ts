@@ -3,11 +3,11 @@ import { NextResponse } from 'next/server';
 import { query, getClient } from '@/lib/db';
 import { ensureOwnerColumns } from '@/lib/schema';
 import { getOwnerId } from '@/lib/session';
-import { actualResultOf } from '@/lib/matchCalc'; // 追加
+import { actualResultOf } from '@/lib/matchCalc';
 
 // 対戦レコードの保存
 export async function POST(request: Request) {
-  const client = await getClient(); // トランザクション用にclientを取得
+  const client = await getClient();
   try {
     const body = await request.json();
     const {
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       myScore,
       oppScore,
       result,
-      isBothAP, // フロントエンドから渡される想定（またはここで判定）
+      isBothAP,
     } = body;
 
     if (!result) {
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       parseInt(oppMiss) || 0,
       parseInt(myScore) || 0,
       parseInt(oppScore) || 0,
-      finalResult, // 補正後の結果を保存
+      finalResult,
       owner,
     ];
 
@@ -92,8 +92,29 @@ export async function POST(request: Request) {
       );
     }
 
+    // 4. 更新後の最新の rank_status を取得してフロントへ返す
+    const rankRes = await client.query(
+      'SELECT season_id, rank_name, class_index, grains, placement_matches_played, is_placement_completed FROM rank_status WHERE owner_id = $1',
+      [owner]
+    );
+    const updatedRank = rankRes.rows[0];
+
     await client.query('COMMIT');
-    return NextResponse.json({ success: true, match: res.rows[0] });
+
+    return NextResponse.json({
+      success: true,
+      match: res.rows[0],
+      rankStatus: updatedRank
+        ? {
+            seasonId: updatedRank.season_id,
+            rankName: updatedRank.rank_name,
+            classIndex: updatedRank.class_index,
+            grains: updatedRank.grains,
+            placementMatchesPlayed: updatedRank.placement_matches_played,
+            isPlacementCompleted: updatedRank.is_placement_completed,
+          }
+        : null,
+    });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('対戦レコード保存エラー:', error);
@@ -118,7 +139,7 @@ export async function DELETE(request: Request) {
 
     await client.query('BEGIN');
 
-    // 1. 自分のレコードだけを削除対象にする（他人の記録は消せない）
+    // 1. 自分のレコードだけを削除対象にする
     const deleted = await client.query(
       'DELETE FROM matches WHERE id = $1 AND owner_id = $2 RETURNING result',
       [id, owner]
@@ -144,8 +165,27 @@ export async function DELETE(request: Request) {
       );
     }
 
+    // 4. 更新後の最新ランク状態を取得
+    const rankRes = await client.query(
+      'SELECT season_id, rank_name, class_index, grains, placement_matches_played, is_placement_completed FROM rank_status WHERE owner_id = $1',
+      [owner]
+    );
+    const updatedRank = rankRes.rows[0];
+
     await client.query('COMMIT');
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      rankStatus: updatedRank
+        ? {
+            seasonId: updatedRank.season_id,
+            rankName: updatedRank.rank_name,
+            classIndex: updatedRank.class_index,
+            grains: updatedRank.grains,
+            placementMatchesPlayed: updatedRank.placement_matches_played,
+            isPlacementCompleted: updatedRank.is_placement_completed,
+          }
+        : null,
+    });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('レコード削除エラー:', error);
