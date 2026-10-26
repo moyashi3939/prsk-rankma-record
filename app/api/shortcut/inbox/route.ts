@@ -1,3 +1,5 @@
+// このAPIルートが静的ビルドの対象にならないようにする
+export const dynamic = 'force-dynamic';
 // app/api/shortcut/inbox/route.ts
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
