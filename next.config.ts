@@ -6,8 +6,8 @@ const nextConfig: NextConfig = {
   experimental: {
     agentFeedback: true,
   },
-  // cacheComponents: true, ← これを削除またはコメントアウト
-  partialPrefetching: true,
+  // cacheComponents: true,     // ← 両方ともコメントアウトまたは削除
+  // partialPrefetching: true,  // ← 両方ともコメントアウトまたは削除
   turbopack: {
     rules: {
       "*.css": {
