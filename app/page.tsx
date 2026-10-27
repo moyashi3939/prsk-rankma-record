@@ -224,7 +224,7 @@ export default function Home() {
         )}
 
         {/* メインステージ・カード */}
-        <div className="glass-panel rounded-3xl p-8 relative overflow-hidden neon-glow-pink border border-white/10">
+        <div className="glass-panel rounded-3xl p-5 md:p-8 relative overflow-hidden neon-glow-pink border border-white/10">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative z-10">
             <div>
               <div className="flex items-center space-x-3 mb-3">
@@ -238,7 +238,7 @@ export default function Home() {
                 )}
               </div>
 
-              <h2 className="text-4xl md:text-5xl font-black tracking-tight text-white mb-2 flex items-baseline space-x-3">
+              <h2 className="text-3xl md:text-5xl font-black tracking-tight text-white mb-2 flex flex-wrap items-baseline gap-x-3">
                 <span>{rankData.rankName}</span>
                 {!isMaster && !isPlacement && (
                   <span className="text-2xl text-cyan-400 font-bold">{CLASSES[rankData.classIndex]}</span>
@@ -254,7 +254,7 @@ export default function Home() {
             </div>
 
             {/* インジケーター */}
-            <div className="bg-slate-900/80 border border-white/10 p-5 rounded-2xl flex flex-col items-center min-w-[240px]">
+            <div className="bg-slate-900/80 border border-white/10 p-5 rounded-2xl flex flex-col items-center w-full md:w-auto md:min-w-[240px]">
               <span className="text-[11px] text-slate-400 mb-2 font-semibold uppercase tracking-wider">
                 {isMaster ? '現在の累計ランク粒（無限）' : isPlacement ? '判定マッチ進捗' : '現在のランク粒'}
               </span>
@@ -290,11 +290,11 @@ export default function Home() {
         </div>
 
         {/* スタッツ群 */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-          <div className="glass-panel p-6 rounded-3xl md:col-span-2 flex flex-col justify-between border border-white/15">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
+          <div className="glass-panel p-5 md:p-6 rounded-3xl col-span-2 flex flex-col justify-between border border-white/15">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">通算勝率 (WIN RATE)</span>
             <div className="flex items-baseline space-x-4 my-4">
-              <span className="text-5xl font-black text-cyan-400 tracking-tighter">{winRate}%</span>
+              <span className="text-4xl md:text-5xl font-black text-cyan-400 tracking-tighter">{winRate}%</span>
               <span className="text-sm text-slate-400">({stats.wins}勝 / {stats.losses}敗 / {stats.draws}分)</span>
             </div>
             <div className="w-full bg-slate-800/80 h-2.5 rounded-full overflow-hidden border border-white/5">
@@ -320,7 +320,7 @@ export default function Home() {
         </div>
 
         {/* 直近の対戦ログ */}
-        <div className="glass-panel p-8 rounded-3xl space-y-6 border border-white/15">
+        <div className="glass-panel p-4 md:p-8 rounded-3xl space-y-5 md:space-y-6 border border-white/15">
           <div className="flex justify-between items-center">
             <h3 className="font-extrabold text-lg text-white tracking-wide">直近の対戦ログ</h3>
             <button

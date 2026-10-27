@@ -26,3 +26,27 @@ body {
   backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+/* ---- スマホ（縦画面）向け ---- */
+
+/* iPhone は、文字が16px未満の入力欄を押すと、画面が勝手に拡大されてしまう。
+   スマホでは、入力欄の文字を16pxにして、拡大されないようにする */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* 画面の向きを変えたときに、文字の大きさが勝手に変わらないようにする */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ボタンを押したときの、灰色の四角（iOS / Android）を出さない */
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}

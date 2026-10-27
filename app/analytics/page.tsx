@@ -96,7 +96,7 @@ export default function AnalyticsPage() {
             </div>
 
             {/* スコア差・バイオリズム変動ウェーブ */}
-            <div className="glass-panel p-8 rounded-3xl border border-white/10 space-y-6">
+            <div className="glass-panel p-5 md:p-8 rounded-3xl border border-white/10 space-y-6">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-lg font-black text-white flex items-center space-x-2">
