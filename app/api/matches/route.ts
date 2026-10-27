@@ -21,18 +21,20 @@ export async function POST(request: Request) {
 
     const int = (v: unknown) => Math.max(0, parseInt(String(v ?? ''), 10) || 0);
 
-    // 総ノーツ数は、登録されている曲から取る（なければ、自分の判定の合計になる）
-    const song = await query('SELECT total_notes FROM songs WHERE song_name = $1 AND difficulty = $2 LIMIT 1', [
+    // 総ノーツ数とレベルは、登録されている曲から取る
+    // （総ノーツ数は、なければ自分の判定の合計になる。レベルは、画面から送られた値が食い違っていても、登録されている曲のレベルを正とする）
+    const song = await query('SELECT total_notes, level FROM songs WHERE song_name = $1 AND difficulty = $2 LIMIT 1', [
       songName,
       difficulty,
     ]);
     const totalNotes = song.rows.length > 0 ? Number(song.rows[0].total_notes) || 0 : 0;
+    const savedLevel = song.rows.length > 0 && song.rows[0].level != null ? String(song.rows[0].level) : String(level ?? '');
 
     const owner = await getOwnerId();
     const saved = await recordMatchForOwner(owner, {
       songName,
       difficulty,
-      level: String(level ?? ''),
+      level: savedLevel,
       totalNotes,
       isOpponentHigher: !!isOpponentHigher,
       my: {

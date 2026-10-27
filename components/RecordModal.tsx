@@ -122,6 +122,23 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
     }
   }, [isOpen]);
 
+  // 曲名・難易度が決まったら、レベルを、登録されている曲のレベルに自動でそろえる。
+  // （画面での選択・候補の選択・画像の読み取り・複数枚の切り替え、どの経路でも、難易度とレベルが食い違わないようにする）
+  useEffect(() => {
+    const forSong = songs.filter((s) => s.song_name === matchForm.songNameInput);
+    if (forSong.length === 0) return; // 登録されていない曲は、レベルを手で入力できる
+
+    const order = ['EXPERT', 'MASTER', 'APPEND'];
+    const diffs = forSong.map((s) => s.difficulty).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    // この曲にない難易度が選ばれていたら、ある難易度に直す
+    const difficulty = diffs.includes(matchForm.difficulty) ? matchForm.difficulty : diffs.includes('MASTER') ? 'MASTER' : diffs[0];
+    const level = String(forSong.find((s) => s.difficulty === difficulty)!.level);
+
+    if (difficulty !== matchForm.difficulty || level !== matchForm.level) {
+      setMatchForm((prev) => ({ ...prev, difficulty, level }));
+    }
+  }, [songs, matchForm.songNameInput, matchForm.difficulty, matchForm.level]);
+
   if (!isOpen) return null;
 
   const handleClose = () => {
@@ -412,7 +429,10 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
 
   const uniqueSongNames = Array.from(new Set(songs.map((s) => s.song_name)));
   const availableSongsForCurrent = songs.filter((s) => s.song_name === matchForm.songNameInput);
-  const availableDifficulties = availableSongsForCurrent.map((s) => s.difficulty);
+  const DIFFICULTY_ORDER = ['EXPERT', 'MASTER', 'APPEND'];
+  const availableDifficulties = availableSongsForCurrent
+    .map((s) => s.difficulty)
+    .sort((a, b) => DIFFICULTY_ORDER.indexOf(a) - DIFFICULTY_ORDER.indexOf(b));
   const currentSongDiffData = availableSongsForCurrent.find((s) => s.difficulty === matchForm.difficulty);
   const totalNotes = currentSongDiffData ? currentSongDiffData.total_notes : ((parseInt(matchForm.myPerfect) || 0) + (parseInt(matchForm.myGreat) || 0) + (parseInt(matchForm.myGood) || 0) + (parseInt(matchForm.myBad) || 0) + (parseInt(matchForm.myMiss) || 0));
 
@@ -445,17 +465,17 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
   else if (myCalculatedScore < oppCalculatedScore) result = 'LOSE';
   const isBothAP = result === 'DRAW' && isAP && oppIsAP;
 
+  // 曲名を入れたとき：いま選んでいる難易度がその曲にあれば残し（なければ MASTER → 最初の難易度）、レベルも合わせる
   const handleSongInputChange = (value: string) => {
-    setMatchForm((prev) => ({ ...prev, songNameInput: value }));
-    const matched = songs.filter((s) => s.song_name === value);
-    if (matched.length > 0) {
-      setMatchForm((prev) => ({
-        ...prev,
-        songNameInput: value,
-        difficulty: matched[0].difficulty,
-        level: matched[0].level,
-      }));
-    }
+    setMatchForm((prev) => {
+      const matched = songs.filter((s) => s.song_name === value);
+      if (matched.length === 0) return { ...prev, songNameInput: value };
+      const chart =
+        matched.find((s) => s.difficulty === prev.difficulty) ??
+        matched.find((s) => s.difficulty === 'MASTER') ??
+        matched[0];
+      return { ...prev, songNameInput: value, difficulty: chart.difficulty, level: String(chart.level) };
+    });
   };
 
   return (
@@ -645,7 +665,12 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
               <label className="block text-xs font-semibold text-slate-300 mb-1">難易度</label>
               <select
                 value={matchForm.difficulty}
-                onChange={(e) => setMatchForm({ ...matchForm, difficulty: e.target.value })}
+                onChange={(e) => {
+                  const difficulty = e.target.value;
+                  const chart = songs.find((s) => s.song_name === matchForm.songNameInput && s.difficulty === difficulty);
+                  // 登録されている曲なら、その難易度のレベルに自動で変わる
+                  setMatchForm({ ...matchForm, difficulty, level: chart ? String(chart.level) : matchForm.level });
+                }}
                 className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-pink-500 text-xs"
               >
                 {availableDifficulties.length > 0 ? (
@@ -662,12 +687,21 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">レベル</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                レベル
+                <span className="ml-1 text-[10px] font-normal text-slate-500">
+                  {currentSongDiffData ? '（難易度に合わせて自動）' : '（登録のない曲は、手入力）'}
+                </span>
+              </label>
               <input
                 type="text"
+                inputMode="numeric"
                 value={matchForm.level}
+                readOnly={!!currentSongDiffData}
                 onChange={(e) => setMatchForm({ ...matchForm, level: e.target.value })}
-                className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-cyan-400 font-bold text-center focus:outline-none text-xs"
+                className={`w-full border rounded-xl px-4 py-2.5 text-cyan-400 font-bold text-center focus:outline-none text-xs ${
+                  currentSongDiffData ? 'bg-slate-900/50 border-white/5 cursor-not-allowed' : 'bg-slate-900 border-white/10'
+                }`}
               />
             </div>
           </div>
