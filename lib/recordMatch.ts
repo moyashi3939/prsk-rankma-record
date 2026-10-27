@@ -91,15 +91,20 @@ export async function recordMatchForOwner(owner: string, input: RecordMatchInput
     );
 
     // ランク・粒を更新（判定マッチが終わるときの、ランクの選択は、アプリを開いたときに行う）
-    const next = applyResult(stateFromRow(rankRow), actualResult, null);
+    const next = applyResult(stateFromRow(rankRow), actualResult, null, {
+      isAP: calc.myIsAP,
+      isFC: calc.myIsFC,
+      isLifeZero: calc.isLifeZero,
+      isOpponentHigher: !!input.isOpponentHigher,
+    });
     const updated = await client.query(
       `UPDATE rank_status
        SET rank_name = $1, class_index = $2, grains = $3,
-           placement_matches_played = $4, is_placement_completed = $5,
+           placement_matches_played = $4, is_placement_completed = $5, bonus = $6,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $6
+       WHERE id = $7
        RETURNING *`,
-      [next.rankName, next.classIndex, next.grains, next.placementMatchesPlayed, next.isPlacementCompleted, rankRow.id]
+      [next.rankName, next.classIndex, next.grains, next.placementMatchesPlayed, next.isPlacementCompleted, next.bonus, rankRow.id]
     );
 
     await client.query('COMMIT');

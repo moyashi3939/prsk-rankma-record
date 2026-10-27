@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import RecordModal from '@/components/RecordModal';
+import RankEditModal from '@/components/RankEditModal';
 import Link from 'next/link';
 import { FOOTER_NOTE, UPDATES } from '@/lib/siteContent';
 import { toast, toastAfterReload } from '@/lib/toast';
@@ -24,7 +25,9 @@ export default function Home() {
     grains: 0,
     placementMatchesPlayed: 0,
     isPlacementCompleted: false,
+    bonus: 0, // ランクポイントボーナス（0〜99。マスターにはない）
   });
+  const [showRankEdit, setShowRankEdit] = useState(false); // ランク・粒の手動修正
 
   const [stats, setStats] = useState({ wins: 0, losses: 0, draws: 0, totalMatches: 0 });
 
@@ -34,6 +37,7 @@ export default function Home() {
   const [setupRank, setSetupRank] = useState('ルーキー');
   const [setupClass, setSetupClass] = useState(0);
   const [setupGrains, setSetupGrains] = useState(0);
+  const [setupBonus, setSetupBonus] = useState(0);
   const [setupSaving, setSetupSaving] = useState(false);
 
   // 初期データ＆ランク状態のロード
@@ -62,6 +66,7 @@ export default function Home() {
             grains: rankStatusData.grains ?? 0,
             placementMatchesPlayed: rankStatusData.placementMatchesPlayed ?? 0,
             isPlacementCompleted: rankStatusData.isPlacementCompleted ?? false,
+            bonus: rankStatusData.bonus ?? 0,
           });
           setSetupDone(!!rankStatusData.setupDone);
 
@@ -112,6 +117,7 @@ export default function Home() {
           grains: r.grains ?? 0,
           placementMatchesPlayed: r.placementMatchesPlayed ?? 0,
           isPlacementCompleted: r.isPlacementCompleted ?? false,
+          bonus: r.bonus ?? 0,
         });
         // 判定マッチが終わったら、ランクを選んでもらう
         if (r.isPlacementCompleted && r.rankName === '判定マッチ') setShowPlacementModal(true);
@@ -152,8 +158,8 @@ export default function Home() {
           rankText = !r.isPlacementCompleted
             ? `判定マッチ ${r.placementMatchesPlayed}/3戦`
             : r.rankName === 'マスター'
-            ? `${r.rankName} ${r.grains}粒`
-            : `${r.rankName} ${CLASSES[r.classIndex]} ${r.grains}粒`;
+            ? `${r.rankName} ${r.grains}粒（ボーナス ${r.bonus ?? 0}）`
+            : `${r.rankName} ${CLASSES[r.classIndex]} ${r.grains}粒（ボーナス ${r.bonus ?? 0}）`;
         }
         toastAfterReload(`レコードを削除し、ランクを巻き戻しました。${rankText ? `\n現在: ${rankText}` : ''}`, 'success');
         window.location.reload(); // 最新状態に反映するため再読み込み
@@ -189,6 +195,7 @@ export default function Home() {
         grains: r.grains ?? 0,
         placementMatchesPlayed: r.placementMatchesPlayed ?? 0,
         isPlacementCompleted: r.isPlacementCompleted ?? false,
+        bonus: r.bonus ?? 0,
       });
       setSetupDone(true);
       setSetupMode('choose');
@@ -231,6 +238,13 @@ export default function Home() {
                 <span className="bg-pink-500/20 text-pink-300 border border-pink-500/40 px-4 py-1 rounded-full text-xs font-bold tracking-widest uppercase">
                   {rankData.seasonId}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setShowRankEdit(true)}
+                  className="bg-white/10 hover:bg-white/20 border border-white/10 text-slate-200 px-3 py-1 rounded-full text-[11px] font-bold transition"
+                >
+                  ✏️ ランク・粒を修正
+                </button>
                 {isPlacement && (
                   <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-3 py-1 rounded-full text-xs font-bold">
                     ⚔️ ランク判定マッチ進行中 ({rankData.placementMatchesPlayed}/3戦)
@@ -248,7 +262,7 @@ export default function Home() {
                 {isPlacement 
                   ? '最初の3戦で実力を測定中！勝敗に関わらず最後まで戦い抜け！' 
                   : isMaster 
-                  ? 'マスターランク帯：限界なき粒数無限蓄積モード' 
+                  ? 'マスターランク帯：限界なき粒数無限蓄積モード（ボーナス100で、粒が1つ増えます）' 
                   : '5粒満タンからさらに1勝（6粒目）で昇格！次のクラスを目指そう'}
               </p>
             </div>
@@ -260,9 +274,20 @@ export default function Home() {
               </span>
               
               {isMaster ? (
-                <div className="text-3xl font-black text-amber-300 font-mono py-2">
-                  💎 {rankData.grains} 粒
-                </div>
+                <>
+                  <div className="text-3xl font-black text-amber-300 font-mono py-2">
+                    💎 {rankData.grains} 粒
+                  </div>
+                  <div className="w-full mt-2 space-y-1">
+                    <div className="flex justify-between text-[10px] text-slate-400">
+                      <span>ランクポイントボーナス</span>
+                      <span className="font-mono text-amber-300">{rankData.bonus} / 100</span>
+                    </div>
+                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden border border-white/5">
+                      <div className="bg-gradient-to-r from-amber-400 to-pink-400 h-full transition-all duration-500" style={{ width: `${Math.min(rankData.bonus, 100)}%` }}></div>
+                    </div>
+                  </div>
+                </>
               ) : isPlacement ? (
                 <div className="flex space-x-2 mb-3">
                   {[1, 2, 3].map((num) => (
@@ -282,6 +307,17 @@ export default function Home() {
                   </div>
                   <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden border border-white/5">
                     <div className="bg-gradient-to-r from-cyan-400 to-pink-500 h-full transition-all duration-500" style={{ width: `${(Math.min(rankData.grains, 5) / 5) * 100}%` }}></div>
+                  </div>
+
+                  {/* ランクポイントボーナス（100たまると粒が1つ増える） */}
+                  <div className="w-full mt-3 space-y-1">
+                    <div className="flex justify-between text-[10px] text-slate-400">
+                      <span>ランクポイントボーナス</span>
+                      <span className="font-mono text-amber-300">{rankData.bonus} / 100</span>
+                    </div>
+                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden border border-white/5">
+                      <div className="bg-gradient-to-r from-amber-400 to-pink-400 h-full transition-all duration-500" style={{ width: `${Math.min(rankData.bonus, 100)}%` }}></div>
+                    </div>
                   </div>
                 </>
               )}
@@ -408,6 +444,26 @@ export default function Home() {
         rankName={rankData.isPlacementCompleted ? rankData.rankName : null}
       />
 
+      {/* ランク・粒・ボーナスの手動修正 */}
+      <RankEditModal
+        isOpen={showRankEdit}
+        initial={rankData}
+        onClose={() => setShowRankEdit(false)}
+        onSaved={(r) => {
+          if (!r) return;
+          setRankData({
+            seasonId: r.seasonId || rankData.seasonId,
+            rankName: r.rankName || '判定マッチ',
+            classIndex: r.classIndex ?? 0,
+            grains: r.grains ?? 0,
+            placementMatchesPlayed: r.placementMatchesPlayed ?? 0,
+            isPlacementCompleted: r.isPlacementCompleted ?? false,
+            bonus: r.bonus ?? 0,
+          });
+          setSetupDone(true);
+        }}
+      />
+
       {/* 最初の状態を選ぶモーダル（初めて使うとき・データ初期化のあと） */}
       {!loading &&
         !setupDone &&
@@ -498,6 +554,23 @@ export default function Home() {
                     />
                   </div>
 
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      ランクポイントボーナス（0〜99。100たまると粒が1つ増えます）
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={99}
+                      value={setupBonus}
+                      onChange={(e) => {
+                        const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                        setSetupBonus(Math.min(n, 99));
+                      }}
+                      className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
                   <div className="flex gap-3 pt-1">
                     <button
                       type="button"
@@ -511,7 +584,7 @@ export default function Home() {
                       type="button"
                       disabled={setupSaving}
                       onClick={() =>
-                        submitSetup({ mode: 'rank', rankName: setupRank, classIndex: setupClass, grains: setupGrains })
+                        submitSetup({ mode: 'rank', rankName: setupRank, classIndex: setupClass, grains: setupGrains, bonus: setupBonus })
                       }
                       className="flex-[2] bg-gradient-to-r from-pink-600 to-cyan-500 hover:from-pink-500 hover:to-cyan-400 disabled:opacity-50 text-white font-black py-3 rounded-xl text-xs tracking-wider transition shadow-lg shadow-cyan-500/20"
                     >
@@ -588,6 +661,7 @@ export default function Home() {
                   rankName: chosenRank,
                   classIndex: isChosenMaster ? 0 : chosenClassIndex,
                   grains: 1, // ★配属直後は1粒固定
+                  bonus: 0, // ボーナスも0から
                   isPlacementCompleted: true,
                 };
 

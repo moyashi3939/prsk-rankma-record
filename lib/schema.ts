@@ -13,8 +13,8 @@ export function ensureAppSettings(): Promise<void> {
         CREATE TABLE IF NOT EXISTS app_settings (
           id SERIAL PRIMARY KEY,
           user_name VARCHAR(100) DEFAULT 'プロセカプレイヤー',
-          custom_id VARCHAR(255) DEFAULT 'player_default',
-          user_id VARCHAR(255) DEFAULT '1234567890',
+          custom_id VARCHAR(50) DEFAULT 'player_default',
+          user_id VARCHAR(50) DEFAULT '1234567890',
           user_email VARCHAR(255),
           current_season VARCHAR(50) DEFAULT 'Season 1',
           season_end_days INT DEFAULT 80,
@@ -22,12 +22,10 @@ export function ensureAppSettings(): Promise<void> {
         );
       `);
 
-      // 古いテーブルに足りないカラムを補う ＆ 長さを拡張（文字数オーバー対策）
+      // 古いテーブルに足りないカラムを補う
       await query(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS user_name VARCHAR(100) DEFAULT 'プロセカプレイヤー'`);
-      await query(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS custom_id VARCHAR(255) DEFAULT 'player_default'`);
-      await query(`ALTER TABLE app_settings ALTER COLUMN custom_id TYPE VARCHAR(255)`);
-      await query(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS user_id VARCHAR(255) DEFAULT '1234567890'`);
-      await query(`ALTER TABLE app_settings ALTER COLUMN user_id TYPE VARCHAR(255)`);
+      await query(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS custom_id VARCHAR(50) DEFAULT 'player_default'`);
+      await query(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS user_id VARCHAR(50) DEFAULT '1234567890'`);
       await query(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS user_email VARCHAR(255)`);
       await query(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS current_season VARCHAR(50) DEFAULT 'Season 1'`);
       await query(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS season_end_days INT DEFAULT 80`);
@@ -51,13 +49,11 @@ export function ensureOwnerColumns(): Promise<void> {
   if (!ownerColumnsEnsured) {
     ownerColumnsEnsured = (async () => {
       await query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS owner_id VARCHAR(255)`);
-      await query(`ALTER TABLE matches ALTER COLUMN owner_id TYPE VARCHAR(255)`);
       // どのシーズンの対戦か（シーズンごとの分析などに使えるように、記録するときに保存する）
       await query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS season_id VARCHAR(50)`);
       await query(`CREATE INDEX IF NOT EXISTS matches_owner_idx ON matches (owner_id)`);
 
       await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS owner_id VARCHAR(255)`);
-      await query(`ALTER TABLE rank_status ALTER COLUMN owner_id TYPE VARCHAR(255)`);
       // 1ユーザーにつきランク状態は1行（NULL の旧データは重複してもOK）
       await query(`CREATE UNIQUE INDEX IF NOT EXISTS rank_status_owner_uidx ON rank_status (owner_id)`);
       await query(
@@ -74,6 +70,11 @@ export function ensureOwnerColumns(): Promise<void> {
       await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS start_grains INT DEFAULT 0`);
       await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS placement_rank_name TEXT`); // 判定マッチのあとに選んだランク
       await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS placement_class_index INT`);
+      // ランクポイントボーナス（0〜99。マスターにはない）と、その「最初の値」
+      await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS bonus INT DEFAULT 0`);
+      await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS start_bonus INT DEFAULT 0`);
+      // 「最初の状態」を決めた（または手で修正した）時点の、最新の対戦ID。これより古い対戦は、ランクの計算に使わない
+      await query(`ALTER TABLE rank_status ADD COLUMN IF NOT EXISTS baseline_after_id INT DEFAULT 0`);
     })().catch((err) => {
       ownerColumnsEnsured = null;
       throw err;
@@ -151,6 +152,8 @@ export async function getDefaultSeason(): Promise<string> {
 }
 
 // iOSショートカット連携用のテーブル
+//  api_tokens        … アカウントごとのトークン（ハッシュだけを保存。1アカウントにつき1つ）
+//  shortcut_uploads  … ショートカットから届いた画像の受信箱（アプリで取り込んで保存したら消える）
 let shortcutTablesEnsured: Promise<void> | null = null;
 
 export function ensureShortcutTables(): Promise<void> {
@@ -221,7 +224,7 @@ export function ensureDifficultyColors(): Promise<void> {
   return difficultyColorsEnsured;
 }
 
-// フォロー（ライバル）のテーブル。
+// フォロー（ライバル）のテーブル。follower_email は、フォローした人の持ち主ID（ログイン中はメールアドレス、ゲストは guest:〜）
 let friendshipsEnsured: Promise<void> | null = null;
 
 export function ensureFriendships(): Promise<void> {
@@ -231,12 +234,11 @@ export function ensureFriendships(): Promise<void> {
         CREATE TABLE IF NOT EXISTS friendships (
           id SERIAL PRIMARY KEY,
           follower_email VARCHAR(255) NOT NULL DEFAULT 'default_user',
-          following_custom_id VARCHAR(255) NOT NULL,
+          following_custom_id VARCHAR(50) NOT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(follower_email, following_custom_id)
         );
       `);
-      await query(`ALTER TABLE friendships ALTER COLUMN following_custom_id TYPE VARCHAR(255)`);
     })().catch((err) => {
       friendshipsEnsured = null;
       throw err;

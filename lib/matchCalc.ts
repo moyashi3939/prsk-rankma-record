@@ -28,6 +28,15 @@ export interface MatchCalcResult {
   result: 'WIN' | 'LOSE' | 'DRAW';
 }
 
+// 自分の判定の数から、AP（ALL PERFECT）・FC（フルコンボ）・ライフ0 かどうかを求める。
+// ランクポイントボーナスの計算（lib/rank.ts）と、保存済みの対戦から計算し直すときにも使う。
+export function deriveMatchFlags(my: { perf: number; great: number; good: number; bad: number; miss: number }) {
+  const isAP = my.great === 0 && my.good === 0 && my.bad === 0 && my.miss === 0 && my.perf > 0;
+  const isFC = !isAP && my.good === 0 && my.bad === 0 && my.miss === 0 && (my.perf > 0 || my.great > 0);
+  const isLifeZero = Math.max(0, 1000 - (my.miss * 80 + my.bad * 50)) <= 0;
+  return { isAP, isFC, isLifeZero };
+}
+
 export function calcMatch(input: MatchCalcInput): MatchCalcResult {
   const { myPerfect, myGreat, myGood, myBad, myMiss, oppGreat, oppGood, oppBad, oppMiss } = input;
 
@@ -40,11 +49,13 @@ export function calcMatch(input: MatchCalcInput): MatchCalcResult {
   const myScore = score(myPerf, myGreat, myGood);
   const oppScore = score(oppPerf, oppGreat, oppGood);
 
-  const myDamage = myMiss * 80 + myBad * 50;
-  const isLifeZero = Math.max(0, 1000 - myDamage) <= 0;
-
-  const myIsAP = myGreat === 0 && myGood === 0 && myBad === 0 && myMiss === 0 && myPerf > 0;
-  const myIsFC = !myIsAP && myGood === 0 && myBad === 0 && myMiss === 0 && (myPerf > 0 || myGreat > 0);
+  const { isAP: myIsAP, isFC: myIsFC, isLifeZero } = deriveMatchFlags({
+    perf: myPerf,
+    great: myGreat,
+    good: myGood,
+    bad: myBad,
+    miss: myMiss,
+  });
   const oppIsAP = oppGreat === 0 && oppGood === 0 && oppBad === 0 && oppMiss === 0 && oppPerf > 0;
 
   let result: 'WIN' | 'LOSE' | 'DRAW' = 'DRAW';

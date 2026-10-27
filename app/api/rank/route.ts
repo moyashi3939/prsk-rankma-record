@@ -1,33 +1,9 @@
 // app/api/rank/route.ts
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { ensureOwnerColumns } from '@/lib/schema';
+import { ensureOwnerColumns, getDefaultSeason } from '@/lib/schema';
 import { getOwnerId } from '@/lib/session';
-
-// DBの行オブジェクトをフロントエンド用に変換するヘルパー関数
-function formatRankStatus(row: any) {
-  if (!row) return null;
-  return {
-    id: row.id,
-    seasonId: row.season_id,
-    rankName: row.rank_name,
-    classIndex: row.class_index,
-    grains: row.grains,
-    placementMatchesPlayed: row.placement_matches_played,
-    isPlacementCompleted: row.is_placement_completed,
-    updatedAt: row.updated_at,
-  };
-}
-
-// 新規ユーザーの初期シーズン（開催中のシーズンがあればそれ、なければ Season 1）
-async function defaultSeason(): Promise<string> {
-  try {
-    const res = await query('SELECT season_name FROM seasons WHERE is_current = TRUE LIMIT 1');
-    return res.rows[0]?.season_name || 'Season 1';
-  } catch {
-    return 'Season 1';
-  }
-}
+import { formatRankStatus } from '@/lib/rank';
 
 // 自分の現在のランク状態を取得
 export async function GET() {
@@ -46,7 +22,7 @@ export async function GET() {
         `INSERT INTO rank_status (owner_id, season_id, rank_name, class_index, grains, placement_matches_played, is_placement_completed)
          VALUES ($1, $2, '判定マッチ', 0, 0, 0, FALSE)
          ON CONFLICT (owner_id) DO NOTHING`,
-        [owner, await defaultSeason()]
+        [owner, await getDefaultSeason()]
       );
       result = await query('SELECT * FROM rank_status WHERE owner_id = $1 ORDER BY id DESC LIMIT 1', [owner]);
     }
@@ -59,13 +35,24 @@ export async function GET() {
 }
 
 // 自分のランク状態の更新
+//  placementRankName / placementClassIndex … 判定マッチのあとに選んだランク（対戦履歴の削除時に使うので覚えておく）
 export async function POST(request: Request) {
   try {
     await ensureOwnerColumns();
     const owner = await getOwnerId();
 
     const body = await request.json();
-    const { seasonId, rankName, classIndex, grains, placementMatchesPlayed, isPlacementCompleted } = body;
+    const {
+      seasonId,
+      rankName,
+      classIndex,
+      grains,
+      placementMatchesPlayed,
+      isPlacementCompleted,
+      placementRankName,
+      placementClassIndex,
+      bonus,
+    } = body;
 
     // まず更新を試し、自分のレコードがなければ INSERT
     let res = await query(
@@ -76,25 +63,41 @@ export async function POST(request: Request) {
            grains = COALESCE($4, grains),
            placement_matches_played = COALESCE($5, placement_matches_played),
            is_placement_completed = COALESCE($6, is_placement_completed),
+           placement_rank_name = COALESCE($8, placement_rank_name),
+           placement_class_index = COALESCE($9, placement_class_index),
+           bonus = COALESCE($10, bonus),
            updated_at = CURRENT_TIMESTAMP
        WHERE owner_id = $7
        RETURNING *;`,
-      [seasonId, rankName, classIndex, grains, placementMatchesPlayed, isPlacementCompleted, owner]
+      [
+        seasonId,
+        rankName,
+        classIndex,
+        grains,
+        placementMatchesPlayed,
+        isPlacementCompleted,
+        owner,
+        placementRankName ?? null,
+        placementClassIndex ?? null,
+        typeof bonus === 'number' ? bonus : null,
+      ]
     );
 
     if (res.rows.length === 0) {
       res = await query(
-        `INSERT INTO rank_status (owner_id, season_id, rank_name, class_index, grains, placement_matches_played, is_placement_completed)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO rank_status (owner_id, season_id, rank_name, class_index, grains, placement_matches_played, is_placement_completed, placement_rank_name, placement_class_index)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING *;`,
         [
           owner,
-          seasonId || (await defaultSeason()),
+          seasonId || (await getDefaultSeason()),
           rankName || '判定マッチ',
           classIndex || 0,
           grains || 0,
           placementMatchesPlayed || 0,
           isPlacementCompleted || false,
+          placementRankName ?? null,
+          placementClassIndex ?? null,
         ]
       );
     }

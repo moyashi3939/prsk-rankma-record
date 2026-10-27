@@ -10,6 +10,7 @@ import {
   type OcrResult,
 } from '@/lib/resultOcr';
 import { calcMatch } from '@/lib/matchCalc';
+import { bonusDelta } from '@/lib/rank';
 import { toast } from '@/lib/toast';
 import { rankRangeTier } from '@/lib/rankRanges';
 import { classifyDifficultyByColor, identifySong, isUsableRingColor, type DifficultyColor } from '@/lib/songMatch';
@@ -685,8 +686,25 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
                 onChange={(e) => setMatchForm({ ...matchForm, isOpponentHigher: e.target.checked })}
                 className="w-4 h-4 accent-pink-500 rounded cursor-pointer"
               />
-              <span className="text-xs font-semibold text-slate-200">🔥 格上マッチ相手だった</span>
+              <span className="text-xs font-semibold text-slate-200">🔥 格上マッチ相手だった（上位クラスの相手）</span>
             </label>
+
+            {/* ランクポイントボーナスの予告（判定マッチ後のみ） */}
+            {rankName && (myCalculatedScore > 0 || oppCalculatedScore > 0) && (() => {
+              const res = myCalculatedScore > oppCalculatedScore ? 'WIN' : myCalculatedScore < oppCalculatedScore ? 'LOSE' : 'DRAW';
+              const delta = bonusDelta(res, { isAP, isFC, isLifeZero, isOpponentHigher: matchForm.isOpponentHigher });
+              return (
+                <p className="text-[11px] text-slate-400 mt-2 px-1">
+                  ランクポイントボーナス：
+                  <b className={delta > 0 ? 'text-amber-300' : delta < 0 ? 'text-red-300' : 'text-slate-300'}>
+                    {delta > 0 ? `+${delta}` : delta}
+                  </b>
+                  <span className="text-slate-500">
+                    {'　'}（AP +20 ／ FC +10 ／ 格上に勝ち +10 ／ ライフ0 −30）
+                  </span>
+                </p>
+              );
+            })()}
           </div>
 
           {/* 自分のリザルト */}
