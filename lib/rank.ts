@@ -130,15 +130,31 @@ export function initialState(b: Baseline): RankState {
   };
 }
 
-// 粒を1つ増やす（5粒を超えたら、次のクラスの1粒目へ。最高クラスは5粒で止まる）
-function gainGrain(s: { classIndex: number; grains: number }) {
+// 粒を1つ増やす
+//  ・5粒を超えたら、次のクラスの1粒目へ（クラスアップ）
+//  ・クラス4で5粒を超えたら、次のランクのクラス1の1粒目へ（ランクアップ。マスターは、クラスなしで1粒から）
+//  ・マスターは、粒が無限に増える
+// ※ ランクは自動で下がらない（ランクの降格は廃止）。下がるのは、クラスだけ。
+function gainGrain(s: { rankName: string; classIndex: number; grains: number }) {
+  if (s.rankName === MASTER) {
+    s.grains += 1;
+    return;
+  }
   s.grains += 1;
   if (s.grains >= MAX_GRAINS + 1) {
     if (s.classIndex < CLASS_COUNT - 1) {
       s.classIndex += 1;
       s.grains = 1;
     } else {
-      s.grains = MAX_GRAINS;
+      const idx = (RANKS as readonly string[]).indexOf(s.rankName);
+      const nextRank = idx >= 0 ? RANKS[idx + 1] : undefined;
+      if (nextRank) {
+        s.rankName = nextRank; // ランクアップ
+        s.classIndex = 0;
+        s.grains = 1;
+      } else {
+        s.grains = MAX_GRAINS;
+      }
     }
   }
 }
@@ -186,7 +202,7 @@ export function applyResult(
         next.classIndex -= 1; // クラスダウン（4粒から）
         next.grains = 4;
       } else {
-        next.grains = 0;
+        next.grains = 0; // クラス1で0粒のときは、これ以上下がらない（ランクは自動で下がらない）
       }
     }
   }
@@ -196,8 +212,7 @@ export function applyResult(
   if (next.bonus < 0) next.bonus = 0;
   while (next.bonus >= BONUS_RULES.perGrain) {
     next.bonus -= BONUS_RULES.perGrain;
-    if (isMasterRank) next.grains += 1; // マスターは、粒が無限に増える
-    else gainGrain(next);
+    gainGrain(next);
   }
 
   return next;

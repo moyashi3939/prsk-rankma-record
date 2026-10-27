@@ -105,11 +105,23 @@ export default function Home() {
       });
 
       const json = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(json.error || 'Failed to save match');
+      if (!response.ok) throw new Error(json.detail ? `${json.error}：${json.detail}` : json.error || 'Failed to save match');
 
       // サーバーで計算された、最新のランク状態を表示に反映する
       const r = json.rankStatus;
       if (r) {
+        // ランク・クラスが変わったら、お知らせする
+        const order = RANKS as readonly string[];
+        const beforeRank = order.indexOf(rankData.rankName);
+        const afterRank = order.indexOf(r.rankName);
+        if (rankData.isPlacementCompleted && beforeRank >= 0 && afterRank > beforeRank) {
+          toast(`🎉 ランクアップ！ ${r.rankName}${r.rankName === 'マスター' ? '' : ` ${CLASSES[r.classIndex ?? 0]}`} に昇格しました`, 'success');
+        } else if (rankData.isPlacementCompleted && r.rankName === rankData.rankName && r.classIndex > rankData.classIndex) {
+          toast(`⬆️ クラスアップ！ ${CLASSES[r.classIndex]} になりました`, 'success');
+        } else if (rankData.isPlacementCompleted && r.rankName === rankData.rankName && r.classIndex < rankData.classIndex) {
+          toast(`⬇️ クラスダウン… ${CLASSES[r.classIndex]} になりました`, 'info');
+        }
+
         setRankData({
           seasonId: r.seasonId || rankData.seasonId,
           rankName: r.rankName || '判定マッチ',
@@ -135,7 +147,7 @@ export default function Home() {
       setMatchLogs((prev) => [json.match, ...prev]);
     } catch (error) {
       console.error('保存エラー:', error);
-      toast('対戦データの保存に失敗しました。', 'error');
+      toast(`対戦データの保存に失敗しました。${error instanceof Error && error.message ? `\n${error.message}` : ''}`, 'error');
     }
   };
 

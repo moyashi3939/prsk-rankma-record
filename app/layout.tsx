@@ -44,11 +44,11 @@ export default function RootLayout({
           body: JSON.stringify(recordData),
         });
         const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json.error || 'Failed to save match');
+        if (!res.ok) throw new Error(json.detail ? `${json.error}：${json.detail}` : json.error || 'Failed to save match');
         savedAny.current = true;
       } catch (error) {
         console.error('保存エラー:', error);
-        toast('対戦データの保存に失敗しました。', 'error');
+        toast(`対戦データの保存に失敗しました。${error instanceof Error && error.message ? `\n${error.message}` : ''}`, 'error');
       }
     })();
     pendingSaves.current.push(save);

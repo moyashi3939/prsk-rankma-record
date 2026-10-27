@@ -49,6 +49,40 @@ export function ensureOwnerColumns(): Promise<void> {
   if (!ownerColumnsEnsured) {
     ownerColumnsEnsured = (async () => {
       await query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS owner_id VARCHAR(255)`);
+
+      // result に 'WIN (AP DRAW)'（13文字）が入るように、列を広げる。
+      // 古いテーブルで、文字数の上限が小さかったり（例: VARCHAR(10)）、値を限定する制約があったりすると、
+      // 「両者AP」の引き分けだけ保存できなくなる。
+      await query(`
+        DO $$
+        DECLARE c RECORD;
+        BEGIN
+          FOR c IN
+            SELECT column_name, character_maximum_length AS len, data_type
+            FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = 'matches'
+              AND column_name IN ('result', 'difficulty', 'level', 'song_name')
+          LOOP
+            IF c.column_name = 'result' AND (c.data_type = 'USER-DEFINED' OR (c.len IS NOT NULL AND c.len < 30)) THEN
+              ALTER TABLE matches ALTER COLUMN result TYPE VARCHAR(30) USING result::text;
+            ELSIF c.column_name = 'difficulty' AND c.len IS NOT NULL AND c.len < 20 THEN
+              ALTER TABLE matches ALTER COLUMN difficulty TYPE VARCHAR(20);
+            ELSIF c.column_name = 'level' AND c.data_type = 'character varying' AND c.len IS NOT NULL AND c.len < 20 THEN
+              ALTER TABLE matches ALTER COLUMN level TYPE VARCHAR(20);
+            ELSIF c.column_name = 'song_name' AND c.len IS NOT NULL AND c.len < 255 THEN
+              ALTER TABLE matches ALTER COLUMN song_name TYPE VARCHAR(255);
+            END IF;
+          END LOOP;
+
+          -- result の値を限定している CHECK 制約があれば外す
+          FOR c IN
+            SELECT conname FROM pg_constraint
+            WHERE conrelid = 'matches'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) ILIKE '%result%'
+          LOOP
+            EXECUTE format('ALTER TABLE matches DROP CONSTRAINT %I', c.conname);
+          END LOOP;
+        END $$;
+      `);
       // どのシーズンの対戦か（シーズンごとの分析などに使えるように、記録するときに保存する）
       await query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS season_id VARCHAR(50)`);
       await query(`CREATE INDEX IF NOT EXISTS matches_owner_idx ON matches (owner_id)`);

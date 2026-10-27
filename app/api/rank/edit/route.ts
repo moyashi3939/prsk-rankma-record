@@ -33,7 +33,7 @@ export async function POST(request: Request) {
          owner_id, season_id, rank_name, class_index, grains, bonus, placement_matches_played, is_placement_completed,
          setup_done, baseline_known, start_rank_name, start_class_index, start_grains, start_bonus,
          placement_rank_name, placement_class_index, baseline_after_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, TRUE, TRUE, $3, $4, $5, $6, NULL, NULL, $8)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, TRUE, TRUE, $9, $4, $5, $6, NULL, NULL, $8)
        ON CONFLICT (owner_id) DO UPDATE SET
          rank_name = $3,
          class_index = $4,
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
          is_placement_completed = TRUE,
          setup_done = TRUE,
          baseline_known = TRUE,
-         start_rank_name = $3,
+         start_rank_name = $9,
          start_class_index = $4,
          start_grains = $5,
          start_bonus = $6,
@@ -52,7 +52,8 @@ export async function POST(request: Request) {
          baseline_after_id = $8,
          updated_at = CURRENT_TIMESTAMP
        RETURNING *`,
-      [owner, await getDefaultSeason(), v.rankName, v.classIndex, v.grains, v.bonus, PLACEMENT_MATCHES, afterId]
+      // ※ $3（rank_name）と $9（start_rank_name）は、列の型が違うことがあるので、同じ番号を使い回さずに、別々に渡す
+      [owner, await getDefaultSeason(), v.rankName, v.classIndex, v.grains, v.bonus, PLACEMENT_MATCHES, afterId, v.rankName]
     );
 
     return NextResponse.json({ success: true, rankStatus: formatRankStatus(res.rows[0]) });

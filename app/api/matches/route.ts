@@ -53,7 +53,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, match: saved.match, rankStatus: saved.rankStatus });
   } catch (error) {
     console.error('対戦レコード保存エラー:', error);
-    return NextResponse.json({ error: 'Failed to save match' }, { status: 500 });
+    // 開発中だけ、原因がわかるように、エラーの内容も返す
+    const detail = process.env.NODE_ENV !== 'production' ? String((error as any)?.message ?? '') : undefined;
+    return NextResponse.json({ error: 'Failed to save match', detail }, { status: 500 });
   }
 }
 
