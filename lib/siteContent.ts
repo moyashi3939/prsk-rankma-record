@@ -24,6 +24,14 @@ export interface UpdateEntry {
 export const UPDATES: UpdateEntry[] = [
    {
     date: '2026-10-28',
+    title: '難易度選択にHARDが追加されました',
+    items: [
+      'ランクごとの選曲範囲: HARD は、EXPERT・MASTER と同じレベルの範囲で判定します(APPEND だけ、別の範囲です)。',
+    
+    ],
+  },
+   {
+    date: '2026-10-28',
     title: '難易度選択後レベルが自動変更されない不具合を修正しました',
     items: [
       '難易度を選ぶと、レベルが自動で変わります。 曲名を入れて、難易度を選ぶと、登録されているその難易度のレベルになります。',

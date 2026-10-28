@@ -4,7 +4,9 @@ import { query } from '@/lib/db';
 import { ensureDifficultyColors } from '@/lib/schema';
 import { getSessionEmail } from '@/lib/session';
 
-const DIFFICULTIES = ['EXPERT', 'MASTER', 'APPEND'];
+import { SELECTABLE_DIFFICULTIES } from '@/lib/difficulty';
+
+const DIFFICULTIES: readonly string[] = SELECTABLE_DIFFICULTIES;
 
 // 覚えている、難易度ごとの「ジャケットのまわりの色」（記録画面で、難易度の判別に使う）
 export async function GET() {

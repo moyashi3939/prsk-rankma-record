@@ -12,6 +12,7 @@ import {
 import { calcMatch } from '@/lib/matchCalc';
 import { bonusDelta } from '@/lib/rank';
 import { toast } from '@/lib/toast';
+import { compareDifficulty, SELECTABLE_DIFFICULTIES } from '@/lib/difficulty';
 import { rankRangeTier } from '@/lib/rankRanges';
 import { classifyDifficultyByColor, identifySong, isUsableRingColor, type DifficultyColor } from '@/lib/songMatch';
 
@@ -128,8 +129,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
     const forSong = songs.filter((s) => s.song_name === matchForm.songNameInput);
     if (forSong.length === 0) return; // 登録されていない曲は、レベルを手で入力できる
 
-    const order = ['EXPERT', 'MASTER', 'APPEND'];
-    const diffs = forSong.map((s) => s.difficulty).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    const diffs = forSong.map((s) => s.difficulty).sort(compareDifficulty);
     // この曲にない難易度が選ばれていたら、ある難易度に直す
     const difficulty = diffs.includes(matchForm.difficulty) ? matchForm.difficulty : diffs.includes('MASTER') ? 'MASTER' : diffs[0];
     const level = String(forSong.find((s) => s.difficulty === difficulty)!.level);
@@ -224,7 +224,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
   const learnDifficultyColor = (jacket: JacketHash | null | undefined) => {
     const ring = jacket?.ring;
     if (!isUsableRingColor(ring)) return;
-    if (!['EXPERT', 'MASTER', 'APPEND'].includes(matchForm.difficulty)) return;
+    if (!(SELECTABLE_DIFFICULTIES as readonly string[]).includes(matchForm.difficulty)) return;
 
     fetch('/api/difficulty-colors', {
       method: 'POST',
@@ -429,10 +429,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
 
   const uniqueSongNames = Array.from(new Set(songs.map((s) => s.song_name)));
   const availableSongsForCurrent = songs.filter((s) => s.song_name === matchForm.songNameInput);
-  const DIFFICULTY_ORDER = ['EXPERT', 'MASTER', 'APPEND'];
-  const availableDifficulties = availableSongsForCurrent
-    .map((s) => s.difficulty)
-    .sort((a, b) => DIFFICULTY_ORDER.indexOf(a) - DIFFICULTY_ORDER.indexOf(b));
+  const availableDifficulties = availableSongsForCurrent.map((s) => s.difficulty).sort(compareDifficulty);
   const currentSongDiffData = availableSongsForCurrent.find((s) => s.difficulty === matchForm.difficulty);
   const totalNotes = currentSongDiffData ? currentSongDiffData.total_notes : ((parseInt(matchForm.myPerfect) || 0) + (parseInt(matchForm.myGreat) || 0) + (parseInt(matchForm.myGood) || 0) + (parseInt(matchForm.myBad) || 0) + (parseInt(matchForm.myMiss) || 0));
 
@@ -679,9 +676,11 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
                   ))
                 ) : (
                   <>
-                    <option value="EXPERT">EXPERT</option>
-                    <option value="MASTER">MASTER</option>
-                    <option value="APPEND">APPEND</option>
+                    {SELECTABLE_DIFFICULTIES.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
                   </>
                 )}
               </select>

@@ -23,6 +23,7 @@ export interface DifficultyColor {
 // ★ ざっくりした値です。使っているうちに、実際に記録した画像の色を覚えて（difficulty_colors テーブル）、
 //    その値のほうを優先して使います。
 export const DEFAULT_DIFFICULTY_COLORS: DifficultyColor[] = [
+  { difficulty: 'HARD', r: 255, g: 170, b: 0 },
   { difficulty: 'EXPERT', r: 238, g: 68, b: 68 },
   { difficulty: 'MASTER', r: 187, g: 51, b: 238 },
   { difficulty: 'APPEND', r: 255, g: 136, b: 221 },

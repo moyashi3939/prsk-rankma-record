@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { parseCsv } from '@/lib/csv';
+import { ALL_DIFFICULTIES, isKnownDifficulty } from '@/lib/difficulty';
 
 export default function AdminSongsPage() {
   const [songs, setSongs] = useState<any[]>([]);
@@ -11,6 +12,8 @@ export default function AdminSongsPage() {
   // 単体登録フォーム用 State
   const [songName, setSongName] = useState('');
   const [expLevel, setExpLevel] = useState('');
+  const [hardLevel, setHardLevel] = useState('');
+  const [hardNotes, setHardNotes] = useState('');
   const [expNotes, setExpNotes] = useState('');
   const [mstLevel, setMstLevel] = useState('');
   const [mstNotes, setMstNotes] = useState('');
@@ -68,14 +71,13 @@ export default function AdminSongsPage() {
     );
   }, [songs, fName, fDifficulty, fLevel, fNotes]);
 
-  // 壊れている可能性がある行（難易度が EXPERT/MASTER/APPEND 以外、または曲名の先頭・末尾に " が付いている）
+  // 壊れている可能性がある行（難易度が、ゲームにある難易度（EASY/NORMAL/HARD/EXPERT/MASTER/APPEND）以外、または曲名の先頭・末尾に " が付いている）
   // 例: CSVのカンマの読み間違いで、曲名が「"Hello」、難易度が「WORLD!"」になってしまったもの
-  const VALID_DIFFICULTIES = ['EXPERT', 'MASTER', 'APPEND'];
   const suspiciousSongs = useMemo(
     () =>
       songs.filter((s: any) => {
         const name = String(s.song_name ?? '');
-        return !VALID_DIFFICULTIES.includes(String(s.difficulty ?? '')) || name.startsWith('"') || name.endsWith('"');
+        return !isKnownDifficulty(String(s.difficulty ?? '')) || name.startsWith('"') || name.endsWith('"');
       }),
     [songs]
   );
@@ -120,6 +122,7 @@ export default function AdminSongsPage() {
     setSubmitting(true);
     try {
       const difficulties = [
+        { name: 'HARD', level: hardLevel, notes: hardNotes },
         { name: 'EXPERT', level: expLevel, notes: expNotes },
         { name: 'MASTER', level: mstLevel, notes: mstNotes },
         { name: 'APPEND', level: appLevel, notes: appNotes },
@@ -133,6 +136,8 @@ export default function AdminSongsPage() {
 
       if (res.ok) {
         setSongName('');
+        setHardLevel('');
+        setHardNotes('');
         setExpLevel('');
         setExpNotes('');
         setMstLevel('');
@@ -152,7 +157,7 @@ export default function AdminSongsPage() {
     }
   };
 
-  // CSVパース処理 (タイトル, 難易度1, レベル1, ノーツ1, 難易度2, レベル2, ノーツ2, 難易度3, レベル3, ノーツ3)
+  // CSVパース処理 (タイトル, 難易度1, レベル1, ノーツ1, 難易度2, レベル2, ノーツ2, …)。難易度のセットは、いくつ並んでいてもよい
   const parseCSV = (text: string) => {
     // "Hello,WORLD!" のように、曲名にカンマが入っていても正しく読めるCSVパーサーを使う
     const rows = parseCsv(text);
@@ -164,34 +169,16 @@ export default function AdminSongsPage() {
       const title = cols[0];
       if (!title) continue;
 
-      // 難易度セット 1 (EXPERT等)
-      if (cols[1] && cols[2]) {
-        parsedSongs.push({
-          songName: title,
-          difficulty: cols[1].toUpperCase(),
-          level: cols[2],
-          notes: parseInt(cols[3], 10) || 0,
-        });
-      }
-
-      // 難易度セット 2 (MASTER等)
-      if (cols[4] && cols[5]) {
-        parsedSongs.push({
-          songName: title,
-          difficulty: cols[4].toUpperCase(),
-          level: cols[5],
-          notes: parseInt(cols[6], 10) || 0,
-        });
-      }
-
-      // 難易度セット 3 (APPEND等)
-      if (cols[7] && cols[8]) {
-        parsedSongs.push({
-          songName: title,
-          difficulty: cols[7].toUpperCase(),
-          level: cols[8],
-          notes: parseInt(cols[9], 10) || 0,
-        });
+      // 難易度のセット（難易度, レベル, ノーツ数）を、3列ずつ、右へ読んでいく（HARD・EXPERT・MASTER・APPEND など）
+      for (let k = 1; k + 1 < cols.length; k += 3) {
+        if (cols[k] && cols[k + 1]) {
+          parsedSongs.push({
+            songName: title,
+            difficulty: cols[k].toUpperCase(),
+            level: cols[k + 1],
+            notes: parseInt(cols[k + 2], 10) || 0,
+          });
+        }
       }
     }
 
@@ -306,7 +293,7 @@ export default function AdminSongsPage() {
           <div className="bg-slate-950 p-3 rounded-xl border border-white/5 text-[11px] text-slate-400 space-y-1">
             <span className="font-bold text-slate-300">💡 スプレッドシートCSV対応列挙順:</span>
             <div className="font-mono text-cyan-400 text-[10px] overflow-x-auto whitespace-nowrap">
-              曲名, 難易度1, レベル1, ノーツ1, 難易度2, レベル2, ノーツ2, 難易度3, レベル3, ノーツ3
+              曲名, 難易度1, レベル1, ノーツ1, 難易度2, レベル2, ノーツ2, …（難易度のセットは、いくつ続けてもOK）
             </div>
           </div>
         </div>
@@ -327,7 +314,26 @@ export default function AdminSongsPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-white/10">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2 border-t border-white/10">
+            {/* HARD */}
+            <div className="space-y-2 bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+              <span className="text-xs font-bold text-orange-300">HARD</span>
+              <input
+                type="text"
+                value={hardLevel}
+                onChange={(e) => setHardLevel(e.target.value)}
+                placeholder="レベル (例: 24)"
+                className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
+              />
+              <input
+                type="number"
+                value={hardNotes}
+                onChange={(e) => setHardNotes(e.target.value)}
+                placeholder="総ノーツ数"
+                className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
+              />
+            </div>
+
             {/* EXPERT */}
             <div className="space-y-2 bg-slate-900/50 p-4 rounded-2xl border border-white/5">
               <span className="text-xs font-bold text-cyan-300">EXPERT</span>
@@ -411,7 +417,7 @@ export default function AdminSongsPage() {
               </button>
             </div>
             <p className="text-xs text-slate-400">
-              難易度が EXPERT / MASTER / APPEND 以外、または曲名の先頭か末尾に「"」が付いているデータです。削除する前に、中身を確認してください。
+              難易度が、ゲームにある難易度（{ALL_DIFFICULTIES.join(' / ')}）以外、または曲名の先頭か末尾に「"」が付いているデータです。削除する前に、中身を確認してください。
             </p>
             <div className="max-h-[240px] overflow-y-auto">
               <table className="w-full text-left text-xs">
