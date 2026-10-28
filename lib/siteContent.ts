@@ -27,7 +27,6 @@ export const UPDATES: UpdateEntry[] = [
     title: '難易度選択にHARDが追加されました',
     items: [
       'ランクごとの選曲範囲: HARD は、EXPERT・MASTER と同じレベルの範囲で判定します(APPEND だけ、別の範囲です)。',
-    
     ],
   },
    {
