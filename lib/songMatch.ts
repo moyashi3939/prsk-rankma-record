@@ -237,11 +237,15 @@ export function identifySong(input: IdentifyInput): IdentifyResult {
   if (input.jacketHex) {
     const target = normalizeJacketHex(input.jacketHex);
     if (target) {
-      jackets
-        .map((j) => {
-          const h = normalizeJacketHex(j.hex);
-          return { name: j.songName, d: h ? jacketDistance(target, h) : Infinity };
-        })
+      // 1つの曲に、ジャケットが複数あることがあるので、曲ごとに、いちばん近いものだけを見る
+      const bestBySong = new Map<string, number>();
+      for (const j of jackets) {
+        const h = normalizeJacketHex(j.hex);
+        const d = h ? jacketDistance(target, h) : Infinity;
+        const prev = bestBySong.get(j.songName);
+        if (prev === undefined || d < prev) bestBySong.set(j.songName, d);
+      }
+      Array.from(bestBySong, ([name, d]) => ({ name, d }))
         .filter((x) => x.d <= NEAR_JACKET_MAX_DISTANCE && !near.has(x.name))
         .sort((a, b) => a.d - b.d)
         .slice(0, NEAR_JACKET_LIMIT)

@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import {
   analyzeResultImage,
   describeWeakest,
+  jacketDistance,
+  JACKET_SAME_THRESHOLD,
+  normalizeJacketHex,
   OCR_TRUST_LOW,
   type JacketHash,
   type JacketRecord,
@@ -202,21 +205,43 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
     return { form, note: notes.join(' '), candidates: id.others as SongFromDB[] };
   };
 
-  // 保存した曲にまだジャケットがなければ、読み取ったジャケットをその曲として登録する
-  // （次回から、ジャケットで曲を特定できるようになる）
+  // 保存した曲のジャケットが、まだ登録されていない種類なら、その曲のジャケットとして登録する
+  // （次回から、ジャケットで曲を特定できる。バージョンで、ジャケットが変わる曲は、種類ごとに登録される）
   const learnJacket = (jacket: JacketHash | null | undefined) => {
     if (!jacket) return;
     const name = matchForm.songNameInput;
     if (!name) return;
-    if (!songs.some((s) => s.song_name === name)) return; // 登録済みの曲だけ
-    if (jackets.some((j) => j.songName === name)) return; // すでにジャケットがある曲は何もしない
+
+    // 保存した譜面（曲名＋難易度）が、登録済みの曲であること
+    const chart = songs.find((s) => s.song_name === name && s.difficulty === matchForm.difficulty);
+    if (!chart) return;
+
+    // 自分の判定の合計が、その譜面の総ノーツ数と合っているときだけ覚える（取り違えた曲のジャケットを、覚えてしまわないため）
+    const my = [matchForm.myPerfect, matchForm.myGreat, matchForm.myGood, matchForm.myBad, matchForm.myMiss].map(
+      (v) => parseInt(v) || 0
+    );
+    const sum = my.reduce((a, b) => a + b, 0);
+    if ((parseInt(matchForm.myPerfect) || 0) > 0 && sum !== Number(chart.total_notes)) return;
+
+    // すでに同じジャケットが登録されていれば、何もしない（別の種類のジャケットなら、追加される）
+    const target = normalizeJacketHex(jacket.hex);
+    if (!target) return;
+    const known = jackets.some((j) => {
+      if (j.songName !== name) return false;
+      const h = normalizeJacketHex(j.hex);
+      return !!h && jacketDistance(target, h) <= JACKET_SAME_THRESHOLD;
+    });
+    if (known) return;
 
     fetch('/api/songs/jackets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ songName: name, hex: jacket.hex, thumb: jacket.preview }),
     })
-      .then(() => setJackets((prev) => [...prev, { songName: name, hex: jacket.hex }]))
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.saved) setJackets((prev) => [...prev, { songName: name, hex: jacket.hex }]);
+      })
       .catch((err) => console.error('ジャケット登録エラー:', err));
   };
 

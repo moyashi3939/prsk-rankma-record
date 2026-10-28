@@ -33,6 +33,7 @@ export interface JacketHash {
 
 // DBに保存されている、曲ごとのジャケット
 export interface JacketRecord {
+  id?: number; // DBでの番号（1つの曲に、ジャケットが複数あることがある）
   songName: string;
   hex: string;
 }
@@ -555,20 +556,25 @@ export function normalizeJacketHex(hex: string): string | null {
 
 // 保存済みのジャケットの中から、読み取ったジャケットに近い曲を、近い順に返す
 // （JACKET_SAME_THRESHOLD 以内で、いちばん近いものから JACKET_MARGIN の範囲に入るものだけ）
+// ※ 1つの曲に、ジャケットが複数登録されていることがある（バージョンで変わる曲）。曲ごとに、いちばん近いものを使う。
 export function findJacketMatches(hex: string, records: JacketRecord[]): { songName: string; distance: number }[] {
   const target = normalizeJacketHex(hex);
   if (target === null) return [];
 
-  const scored: { songName: string; distance: number }[] = [];
+  const bestBySong = new Map<string, number>();
   for (const r of records) {
     const h = normalizeJacketHex(r.hex);
     if (h === null) continue;
     const distance = jacketDistance(target, h);
-    if (distance <= JACKET_SAME_THRESHOLD) scored.push({ songName: r.songName, distance });
+    const prev = bestBySong.get(r.songName);
+    if (prev === undefined || distance < prev) bestBySong.set(r.songName, distance);
   }
+
+  const scored = Array.from(bestBySong, ([songName, distance]) => ({ songName, distance }))
+    .filter((r) => r.distance <= JACKET_SAME_THRESHOLD)
+    .sort((x, y) => x.distance - y.distance);
   if (scored.length === 0) return [];
 
-  scored.sort((x, y) => x.distance - y.distance);
   const best = scored[0].distance;
   return scored.filter((r) => r.distance <= best + JACKET_MARGIN);
 }

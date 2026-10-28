@@ -157,9 +157,11 @@ let songJacketsEnsured: Promise<void> | null = null;
 export function ensureSongJackets(): Promise<void> {
   if (!songJacketsEnsured) {
     songJacketsEnsured = (async () => {
+      // 1つの曲に、ジャケットが複数あることがある（バージョンなどで、ジャケットが変わる曲）ので、1曲につき複数行を持てる
       await query(`
         CREATE TABLE IF NOT EXISTS song_jackets (
-          song_name TEXT PRIMARY KEY,
+          id SERIAL PRIMARY KEY,
+          song_name TEXT NOT NULL,
           hex TEXT NOT NULL,
           thumb TEXT,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -167,6 +169,27 @@ export function ensureSongJackets(): Promise<void> {
       `);
       // 確認用のサムネイル（あとから追加したカラム）
       await query(`ALTER TABLE song_jackets ADD COLUMN IF NOT EXISTS thumb TEXT`);
+
+      // 古い形（song_name が主キーで、1曲に1つだけ）のテーブルを、複数持てる形に直す
+      await query(`ALTER TABLE song_jackets ADD COLUMN IF NOT EXISTS id SERIAL`);
+      await query(`
+        DO $$
+        DECLARE pk TEXT;
+        BEGIN
+          SELECT c.conname INTO pk
+          FROM pg_constraint c
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+          WHERE c.conrelid = 'song_jackets'::regclass AND c.contype = 'p' AND a.attname = 'song_name'
+          LIMIT 1;
+          IF pk IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE song_jackets DROP CONSTRAINT %I', pk);
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'song_jackets'::regclass AND contype = 'p') THEN
+            ALTER TABLE song_jackets ADD PRIMARY KEY (id);
+          END IF;
+        END $$;
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS song_jackets_song_idx ON song_jackets (song_name)`);
     })().catch((err) => {
       songJacketsEnsured = null;
       throw err;

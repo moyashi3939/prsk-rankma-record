@@ -3,8 +3,10 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { ensureSongJackets } from '@/lib/schema';
 import { requireAdmin } from '@/lib/admin';
+import { expectedJacketVariants } from '@/lib/jacketVariants';
 
 // 管理者画面用：全曲の一覧と、ジャケットの登録状況（サムネイル・譜面の情報付き）
+// 1つの曲に、ジャケットが複数あることがある（バージョンで変わる曲）。登録済みの数と、あるはずの数も返す。
 export async function GET() {
   const denied = await requireAdmin();
   if (denied) return denied;
@@ -12,7 +14,12 @@ export async function GET() {
   try {
     await ensureSongJackets();
     const res = await query(
-      `SELECT s.song_name, s.charts, (j.hex IS NOT NULL) AS registered, j.thumb, j.updated_at
+      `SELECT s.song_name, s.charts,
+              COALESCE(
+                (SELECT json_agg(json_build_object('id', j.id, 'thumb', j.thumb) ORDER BY j.id)
+                 FROM song_jackets j WHERE j.song_name = s.song_name),
+                '[]'::json
+              ) AS jackets
        FROM (
          SELECT song_name,
                 json_agg(json_build_object('difficulty', difficulty, 'level', level, 'totalNotes', total_notes)
@@ -20,16 +27,14 @@ export async function GET() {
          FROM songs
          GROUP BY song_name
        ) s
-       LEFT JOIN song_jackets j ON j.song_name = s.song_name
        ORDER BY s.song_name`
     );
     return NextResponse.json(
       res.rows.map((r) => ({
         songName: r.song_name,
         charts: r.charts || [],
-        registered: r.registered,
-        thumb: r.thumb,
-        updatedAt: r.updated_at,
+        jackets: r.jackets || [], // [{ id, thumb }]
+        expected: expectedJacketVariants(r.song_name), // ジャケットが何種類あるはずか
       }))
     );
   } catch (error) {
