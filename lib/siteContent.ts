@@ -23,6 +23,14 @@ export interface UpdateEntry {
 
 export const UPDATES: UpdateEntry[] = [
    {
+    date: '2026-10-30',
+    title: '画像解析の一部不具合を修正しました',
+    items: [
+      '相手のBADが0なのに、9と表示される不具合を修正しました。',
+      '直したときは、記録画面に、「読み取りを自動で補正しました：相手のBAD 9 → 0。内容を確認してください。」と出します。',
+    ],
+  },
+   {
     date: '2026-10-29',
     title: '複数種類ジャケットがある曲に対応しました。',
     items: [
