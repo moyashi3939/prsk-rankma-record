@@ -149,6 +149,9 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
     onClose();
   };
 
+  // 登録されている曲の総ノーツ数の一覧（数字の読み間違いを、合計から補正するのに使う）
+  const knownTotals = () => songs.map((s) => Number(s.total_notes)).filter(Number.isFinite);
+
   // OCR結果をフォームの値に変換する。
   // 曲・難易度は、ジャケット・総ノーツ数（自分の判定の合計）・ジャケットのまわりの色から決める（lib/songMatch.ts）。
   // 決まったものを入力したうえで、念のため、他の候補も出す。
@@ -197,6 +200,10 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
       form.songNameInput = id.songName;
     }
     notes.push(...id.reasons);
+
+    if (ocr.corrections.length > 0) {
+      notes.push(`読み取りを自動で補正しました：${ocr.corrections.join('、')}。内容を確認してください。`);
+    }
 
     if (ocr.trust < OCR_TRUST_LOW) {
       notes.push(`読み取りに自信がない項目があります（${describeWeakest(ocr.weakest)}）。数値を確認してください。`);
@@ -290,7 +297,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
     setOcrLoading(true);
 
     try {
-      const ocr = await analyzeResultImage(file);
+      const ocr = await analyzeResultImage(file, { knownTotals: knownTotals() });
       const { form, note, candidates: cands } = applyOcr(ocr, matchForm);
       setMatchForm(form);
       setOcrNote(note);
@@ -324,7 +331,7 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
     for (let i = 0; i < files.length; i++) {
       setBatchProgress(i + 1);
       try {
-        const ocr = await analyzeResultImage(files[i]);
+        const ocr = await analyzeResultImage(files[i], { knownTotals: knownTotals() });
         const { form, note, candidates: cands } = applyOcr(ocr, initialFormState);
         parsedArray.push({
           file: files[i],

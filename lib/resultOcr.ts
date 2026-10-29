@@ -8,6 +8,7 @@ import {
   readJacketFromImage,
   setOcrEnv,
   TESSERACT_PARAMS,
+  type AnalyzeOptions,
   type JacketHash,
   type OcrResult,
 } from '@/lib/ocrCore';
@@ -94,11 +95,11 @@ function loadImage(file: Blob): Promise<{ img: HTMLImageElement; url: string }> 
 // ============================================================
 
 // リザルト画像（File / Blob）を渡すと、自分と相手の判定の数を読み取って返す
-export async function analyzeResultImage(file: Blob): Promise<OcrResult> {
+export async function analyzeResultImage(file: Blob, options: AnalyzeOptions = {}): Promise<OcrResult> {
   const { img, url } = await loadImage(file);
   try {
     const worker = await getWorker();
-    return await analyzeLoadedImage(img, worker);
+    return await analyzeLoadedImage(img, worker, options);
   } finally {
     URL.revokeObjectURL(url);
   }

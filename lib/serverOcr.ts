@@ -8,7 +8,7 @@
 // そのときは呼び出し側で、画像を「受信箱（保留）」に入れる。
 import { createRequire } from 'module';
 import path from 'path';
-import { analyzeLoadedImage, setOcrEnv, TESSERACT_PARAMS, type OcrResult } from '@/lib/ocrCore';
+import { analyzeLoadedImage, setOcrEnv, TESSERACT_PARAMS, type AnalyzeOptions, type OcrResult } from '@/lib/ocrCore';
 
 // バンドラーを通さずに、プロジェクトの node_modules から直接 require する
 // （パッケージが無いときも、アプリ全体のビルドは壊れない）
@@ -72,10 +72,10 @@ export async function isServerOcrAvailable(): Promise<boolean> {
 }
 
 // 画像（JPEG / PNG / WebP の Buffer）を読み取る
-export function analyzeResultBuffer(buf: Buffer): Promise<OcrResult> {
+export function analyzeResultBuffer(buf: Buffer, options: AnalyzeOptions = {}): Promise<OcrResult> {
   return enqueue(async () => {
     const rt = await getRuntime();
     const img = await rt.loadImage(buf);
-    return analyzeLoadedImage(img, rt.worker);
+    return analyzeLoadedImage(img, rt.worker, options);
   });
 }

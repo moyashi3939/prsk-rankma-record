@@ -47,6 +47,11 @@ function judgeAutoRegister(ocr: OcrResult, identify: ReturnType<typeof identifyS
     reasons.push(`読み取りに自信がありません（${describeWeakest(ocr.weakest)}・信頼度 ${Math.round(ocr.trust)}%）`);
   }
 
+  // 数字を自動で補正したものは、補正が1か所だけのときだけ、自動で登録する（2か所以上は、確認してもらう）
+  if (ocr.corrections.length > 1) {
+    reasons.push(`数字を${ocr.corrections.length}か所、自動で補正しました（${ocr.corrections.join('、')}）`);
+  }
+
   if (!identify.chart) {
     reasons.push('曲を決められませんでした');
   } else if (identify.confidence !== 'high') {
@@ -58,7 +63,8 @@ function judgeAutoRegister(ocr: OcrResult, identify: ReturnType<typeof identifyS
   //  ・数字がすべて読めている（推定で埋めたものがない）
   //  ・読み取りの信頼度が AUTO_REGISTER_TRUST 以上で、自分と相手の判定の合計も合っている
   //  ・曲と難易度が、ジャケットと総ノーツ数から1つに決まり、確信度が high
-  const ok = allRead && ocr.trust >= AUTO_REGISTER_TRUST && !!identify.chart && identify.confidence === 'high';
+  const ok =
+    allRead && ocr.trust >= AUTO_REGISTER_TRUST && ocr.corrections.length <= 1 && !!identify.chart && identify.confidence === 'high';
 
   return { ok, reasons };
 }
@@ -150,9 +156,30 @@ export async function POST(request: Request) {
     let identify: ReturnType<typeof identifySong> | null = null;
     let pendingReasons: string[] = [];
 
+    // 曲・ジャケット・難易度の色・いまのランクのデータ（読み取りの補正にも使うので、先に読み込む）
+    let songsRows: SongRow[] = [];
+    let jacketRows: { songName: string; hex: string }[] = [];
+    let colorRows: DifficultyColor[] = [];
+    let currentRank: string | null = null;
+
     if (await isServerOcrAvailable()) {
       try {
-        ocr = await analyzeResultBuffer(buf);
+        await ensureSongJackets();
+        await ensureDifficultyColors();
+        await ensureOwnerColumns();
+        const [songsRes, jacketsRes, colorsRes, rankRes] = await Promise.all([
+          query('SELECT id, song_name, difficulty, level, total_notes FROM songs'),
+          query('SELECT song_name, hex FROM song_jackets'),
+          query('SELECT difficulty, r, g, b FROM difficulty_colors'),
+          query('SELECT rank_name FROM rank_status WHERE owner_id = $1 LIMIT 1', [owner]),
+        ]);
+        songsRows = songsRes.rows as SongRow[];
+        jacketRows = jacketsRes.rows.map((r) => ({ songName: r.song_name, hex: r.hex }));
+        colorRows = colorsRes.rows as DifficultyColor[];
+        currentRank = rankRes.rows[0]?.rank_name ?? null;
+
+        // 登録されている曲の総ノーツ数を渡すと、数字の読み間違い（0 と 9 の取り違えなど）を、合計から補正できる
+        ocr = await analyzeResultBuffer(buf, { knownTotals: songsRows.map((s) => Number(s.total_notes)).filter(Number.isFinite) });
       } catch (err) {
         console.error('サーバーでの画像読み取りエラー:', err);
         pendingReasons.push('画像の読み取りに失敗しました');
@@ -162,17 +189,6 @@ export async function POST(request: Request) {
     }
 
     if (ocr) {
-      // 曲・ジャケット・難易度の色のデータを読み込む
-      await ensureSongJackets();
-      await ensureDifficultyColors();
-      await ensureOwnerColumns();
-      const [songsRes, jacketsRes, colorsRes, rankRes] = await Promise.all([
-        query('SELECT id, song_name, difficulty, level, total_notes FROM songs'),
-        query('SELECT song_name, hex FROM song_jackets'),
-        query('SELECT difficulty, r, g, b FROM difficulty_colors'),
-        query('SELECT rank_name FROM rank_status WHERE owner_id = $1 LIMIT 1', [owner]),
-      ]);
-
       const m = ocr.me;
       const mine = [m.perfect, m.great, m.good, m.bad, m.miss];
       const total = mine.every(isNum) ? (mine as number[]).reduce((a, b) => a + b, 0) : null;
@@ -181,10 +197,10 @@ export async function POST(request: Request) {
         total,
         jacketHex: ocr.jacket?.hex ?? null,
         ring: ocr.jacket?.ring ?? null,
-        songs: songsRes.rows as SongRow[],
-        jackets: jacketsRes.rows.map((r) => ({ songName: r.song_name, hex: r.hex })),
-        difficultyColors: colorsRes.rows as DifficultyColor[],
-        rankName: rankRes.rows[0]?.rank_name ?? null, // いまのランクの選曲範囲を、手がかりにする
+        songs: songsRows,
+        jackets: jacketRows,
+        difficultyColors: colorRows,
+        rankName: currentRank, // いまのランクの選曲範囲を、手がかりにする
       });
 
       const judged = judgeAutoRegister(ocr, identify);

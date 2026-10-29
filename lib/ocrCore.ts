@@ -44,6 +44,19 @@ export interface OcrResult {
   jacket: JacketHash | null; // 楽曲ジャケット（曲の特定に使う）
   trust: number; // 全項目の信頼度(%)のうち、いちばん低いもの
   weakest: string; // そのいちばん信頼度が低かった項目（例: 'opponent/good'）
+  corrections: string[]; // 自動で補正した読み取り（例: '相手のBAD 9 → 0'）。空なら、補正なし
+}
+
+// 読み取りのオプション
+export interface AnalyzeOptions {
+  // 登録されている曲の総ノーツ数の一覧。合計が合わないときの、読み間違いの補正に使う
+  knownTotals?: Iterable<number>;
+}
+
+// ある項目を、別の数字として読んだ候補（0 と 9 の取り違えなどの補正に使う）
+interface Alt {
+  value: number;
+  conf: number;
 }
 
 // ============================================================
@@ -210,6 +223,21 @@ function normalizeDigits(c: CanvasLike): CanvasLike | null {
   // 見つかった「文字」が小さすぎるときは、文字ではなくノイズなので使わない
   if (bottom - top + 1 < h * MIN_DIGIT_RATIO) return null;
 
+  // 文字が何個に見えるか（黒い画素のある列が、2列以上のすき間で区切られているところで数える）
+  let glyphs = 0;
+  let inGlyph = false;
+  let gap = 0;
+  for (let x = left; x <= right; x++) {
+    if (colCount[x] >= MIN_INK) {
+      if (!inGlyph) glyphs++;
+      inGlyph = true;
+      gap = 0;
+    } else {
+      gap++;
+      if (gap >= 2) inGlyph = false;
+    }
+  }
+
   const bw = right - left + 1;
   const bh = bottom - top + 1;
   const ow = Math.max(1, Math.round((bw * DIGIT_HEIGHT) / bh));
@@ -221,6 +249,7 @@ function normalizeDigits(c: CanvasLike): CanvasLike | null {
   octx.fillStyle = 'white';
   octx.fillRect(0, 0, out.width, out.height);
   octx.drawImage(c, left, top, bw, bh, PAD, PAD, ow, DIGIT_HEIGHT);
+  (out as any).glyphs = glyphs; // 読み取りのときに、文字の数の確認に使う
   return out;
 }
 
@@ -268,21 +297,53 @@ function toDigits(text: string): string {
   return s.replace(/[^0-9]/g, '');
 }
 
-// 数字を1つ読む。何も読めなかったら「1文字モード」「2個並べ」でもう一度試す
-async function readNumber(worker: any, canvas: CanvasLike) {
-  let data = (await worker.recognize(env().toRecognizable(canvas))).data;
-  let digits = toDigits(data.text.trim());
+interface NumberReading {
+  value: number | null;
+  confidence: number;
+  alts: Alt[]; // 読み取った数字の候補（採用した値も含む）
+}
 
-  // 2回目: 1文字モード（"0" だけの画像は、1行モードだと読めないことがあるため）
-  if (digits === '') {
+// 数字を1つ読む。
+//  ・文字が1つだけに見えるときは、「1文字モード（数字だけ）」でも読む（0 と 9 などの取り違えが減る）
+//  ・文字の数と、読み取った桁数が合うものを優先する
+//  ・何も読めなかったら「1文字モード」「2個並べ」でもう一度試す
+async function readNumber(worker: any, canvas: CanvasLike): Promise<NumberReading> {
+  const glyphs: number | undefined = (canvas as any).glyphs;
+  const readings: { digits: string; conf: number; single?: boolean }[] = [];
+
+  const recognize = async (c: CanvasLike) => {
+    const data = (await worker.recognize(env().toRecognizable(c))).data;
+    return { digits: toDigits(String(data.text ?? '').trim()), conf: (data.confidence as number) || 0 };
+  };
+
+  // 1回目: 1行モード
+  readings.push(await recognize(canvas));
+
+  // 文字が1つだけに見えるときは、1文字モード（数字だけ）でも読む
+  if (glyphs === 1) {
+    await worker.setParameters({ tessedit_pageseg_mode: '10', tessedit_char_whitelist: '0123456789' });
+    try {
+      readings.push({ ...(await recognize(canvas)), single: true });
+    } finally {
+      await worker.setParameters({
+        tessedit_pageseg_mode: TESSERACT_PARAMS.tessedit_pageseg_mode,
+        tessedit_char_whitelist: TESSERACT_PARAMS.tessedit_char_whitelist,
+      });
+    }
+  }
+
+  // 2回目: 何も読めなかったら、1文字モード（"0" だけの画像は、1行モードだと読めないことがあるため）
+  if (readings.every((r) => r.digits === '')) {
     await worker.setParameters({ tessedit_pageseg_mode: '10' });
-    data = (await worker.recognize(env().toRecognizable(canvas))).data;
-    digits = toDigits(data.text.trim());
-    await worker.setParameters({ tessedit_pageseg_mode: '7' }); // 1行モードに戻す
+    try {
+      readings.push(await recognize(canvas));
+    } finally {
+      await worker.setParameters({ tessedit_pageseg_mode: TESSERACT_PARAMS.tessedit_pageseg_mode }); // 1行モードに戻す
+    }
   }
 
   // 3回目: 同じ画像を2つ並べて読む（"00" のように並べると読めることがある）
-  if (digits === '') {
+  if (readings.every((r) => r.digits === '')) {
     const twin = env().createCanvas(1, 1);
     twin.width = canvas.width * 2;
     twin.height = canvas.height;
@@ -291,36 +352,54 @@ async function readNumber(worker: any, canvas: CanvasLike) {
     tctx.fillRect(0, 0, twin.width, twin.height);
     tctx.drawImage(canvas, 0, 0);
     tctx.drawImage(canvas, canvas.width, 0);
-    data = (await worker.recognize(env().toRecognizable(twin))).data;
-    const both = toDigits(data.text.trim());
-    const half = both.length / 2;
+    const both = await recognize(twin);
+    const half = both.digits.length / 2;
     // 前半と後半が同じなら、その1つぶんが答え（"00" → 0）
-    if (both.length > 0 && both.length % 2 === 0 && both.slice(0, half) === both.slice(half)) {
-      digits = both.slice(0, half);
+    if (both.digits.length > 0 && both.digits.length % 2 === 0 && both.digits.slice(0, half) === both.digits.slice(half)) {
+      readings.push({ digits: both.digits.slice(0, half), conf: both.conf });
     }
   }
 
-  // 読めなかったら値は null、信頼度は 0
-  const value = digits === '' ? null : parseInt(digits, 10);
-  return { value, confidence: value === null ? 0 : (data.confidence as number) };
+  const valid = readings.filter((r) => r.digits !== '');
+  if (valid.length === 0) return { value: null, confidence: 0, alts: [] };
+
+  // 文字の数と、桁数が合うものだけを使う（合うものが1つもなければ、全部を使う）
+  const matching = glyphs ? valid.filter((r) => r.digits.length === glyphs) : valid;
+  const pool = matching.length > 0 ? matching : valid;
+  // 1文字モードで読めていれば、それを優先する。なければ、いちばん自信があるもの
+  const primary = pool.find((r) => r.single) ?? pool.reduce((x, y) => (y.conf > x.conf ? y : x));
+
+  const alts = new Map<number, number>();
+  for (const r of valid) {
+    const v = parseInt(r.digits, 10);
+    alts.set(v, Math.max(alts.get(v) ?? 0, r.conf));
+  }
+
+  return {
+    value: parseInt(primary.digits, 10),
+    confidence: primary.conf,
+    alts: Array.from(alts, ([value, conf]) => ({ value, conf })),
+  };
 }
 
-// 信頼度が低ければ別のしきい値でも試して、いちばん信頼度が高い結果を採用する
+// 信頼度が低ければ別のしきい値でも試して、いちばん信頼度が高い結果を採用する（読み取った候補は、すべて覚えておく）
 async function readItem(
   worker: any,
   img: ImageLike,
   base: BaseArea,
   region: Region,
   thresholds: number[]
-) {
-  let best: { value: number | null; confidence: number } | null = null;
+): Promise<NumberReading> {
+  let best: NumberReading | null = null;
+  const alts = new Map<number, number>();
   for (let i = 0; i < thresholds.length; i++) {
     const c = cropRegion(img, base, region, thresholds[i]);
     const r = await readNumber(worker, c);
+    for (const a of r.alts) alts.set(a.value, Math.max(alts.get(a.value) ?? 0, a.conf));
     if (best === null || r.confidence > best.confidence) best = r;
     if (best.confidence >= RETRY_BELOW) break; // 十分自信があればここで終わり
   }
-  return best!;
+  return { ...best!, alts: Array.from(alts, ([value, conf]) => ({ value, conf })) };
 }
 
 // 画像全体を読み取る
@@ -328,11 +407,13 @@ async function readResult(img: ImageLike, worker: any) {
   const base = getBaseArea(img);
   const result = {} as Record<Player, PlayerResult>;
   const conf = {} as Record<Player, Record<Item, number>>;
+  const alts = {} as Record<Player, Record<Item, Alt[]>>;
 
   const players = Object.keys(REGIONS) as Player[];
   for (const player of players) {
     result[player] = {} as PlayerResult;
     conf[player] = {} as Record<Item, number>;
+    alts[player] = {} as Record<Item, Alt[]>;
 
     const items = Object.keys(REGIONS[player]) as Item[];
     for (const item of items) {
@@ -341,9 +422,10 @@ async function readResult(img: ImageLike, worker: any) {
       const r = await readItem(worker, img, base, REGIONS[player][item], thresholds);
       result[player][item] = r.value;
       conf[player][item] = r.confidence;
+      alts[player][item] = r.alts;
     }
   }
-  return { result, conf };
+  return { result, conf, alts };
 }
 
 // 合計チェック: 同じ譜面を遊んでいるので、自分と相手の判定の合計（＝ノーツ数）は同じになるはず
@@ -382,6 +464,166 @@ function checkTotals(result: Record<Player, PlayerResult>, conf: Record<Player, 
     return info.me.sum !== info.opponent.sum; // 合わなければ読み間違いの証拠
   }
   return false;
+}
+
+// ============================================================
+// 合計を手がかりにした、読み間違いの補正
+// ============================================================
+
+// 見た目が似ていて、取り違えやすい数字（from → to と、そのときの「補正しにくさ」。小さいほど、起きやすい取り違え）
+const CONFUSABLE: Record<string, { to: string; cost: number }[]> = {
+  '0': [{ to: '9', cost: 1.2 }, { to: '8', cost: 1.6 }, { to: '6', cost: 2.0 }],
+  '9': [{ to: '0', cost: 1.2 }, { to: '8', cost: 1.8 }, { to: '4', cost: 2.2 }],
+  '8': [{ to: '0', cost: 1.6 }, { to: '9', cost: 1.8 }, { to: '3', cost: 2.0 }, { to: '6', cost: 2.0 }],
+  '6': [{ to: '0', cost: 2.0 }, { to: '5', cost: 2.0 }, { to: '8', cost: 2.0 }],
+  '1': [{ to: '7', cost: 2.0 }],
+  '7': [{ to: '1', cost: 2.0 }],
+  '3': [{ to: '8', cost: 2.0 }],
+  '5': [{ to: '6', cost: 2.0 }],
+  '4': [{ to: '9', cost: 2.2 }],
+};
+
+const JUDGE_ITEMS: Item[] = ['perfect', 'great', 'good', 'bad', 'miss'];
+const ITEM_JA: Record<Item, string> = { perfect: 'PERFECT', great: 'GREAT', good: 'GOOD', bad: 'BAD', miss: 'MISS', combo: '最大コンボ' };
+const PLAYER_JA: Record<Player, string> = { me: '自分', opponent: '相手' };
+
+const MAX_CHANGES_PER_SIDE = 2; // 片方のプレイヤーで、補正してよい項目の数
+const MAX_CHANGES_TOTAL = 2; // 2人あわせて、補正してよい項目の数
+const MAX_CORRECTION_SCORE = 3.0; // これより「補正しにくい」ものは、補正しない
+const AMBIGUOUS_GAP = 0.4; // 1位と2位の差がこれ未満なら、どちらが正しいか決められないので、補正しない
+const UNKNOWN_TOTAL_PENALTY = 1.5; // 補正後の合計が、登録されている曲の総ノーツ数にないときの、減点
+const KNOWN_TOTAL_BONUS = 1.0; // 補正後の合計が、登録されている曲の総ノーツ数にあるときの、加点
+
+interface Cand {
+  value: number;
+  cost: number;
+  changed: boolean;
+}
+
+// 1つの項目の、補正の候補を作る（読み取った値 ＋ 別の読み取り結果 ＋ 似た数字への置き換え）
+function buildCandidates(base: number, conf: number, alts: Alt[]): Cand[] {
+  const map = new Map<number, Cand>();
+  const put = (value: number, cost: number, changed: boolean) => {
+    const prev = map.get(value);
+    if (!prev || cost < prev.cost) map.set(value, { value, cost, changed });
+  };
+
+  put(base, 0, false);
+
+  // 別のモード・しきい値で読めた値
+  for (const a of alts) {
+    if (a.value !== base) put(a.value, 1.0 + Math.max(0, conf - a.conf) / 50, true);
+  }
+
+  // 1桁だけ、似た数字に置き換えた値。自信が低いほど、置き換えやすい
+  const str = String(base);
+  const mult = conf >= 90 ? 1.1 : conf >= 70 ? 1.0 : 0.8;
+  for (let i = 0; i < str.length; i++) {
+    for (const { to, cost } of CONFUSABLE[str[i]] ?? []) {
+      if (i === 0 && str.length > 1 && to === '0') continue; // 先頭が0になる数字は作らない
+      put(parseInt(str.slice(0, i) + to + str.slice(i + 1), 10), cost * mult, true);
+    }
+  }
+  return Array.from(map.values());
+}
+
+interface SideSolution {
+  cost: number;
+  changes: number;
+  picks: number[]; // JUDGE_ITEMS の順の値
+}
+
+// 片方のプレイヤーについて、「合計」ごとに、いちばん補正が少ない（安い）組み合わせを求める
+function solveSide(cands: Cand[][]): Map<number, SideSolution[]> {
+  const out = new Map<number, SideSolution[]>();
+  const picks: number[] = [];
+
+  const walk = (i: number, sum: number, cost: number, changes: number) => {
+    if (changes > MAX_CHANGES_PER_SIDE) return;
+    if (i === cands.length) {
+      const list = out.get(sum) ?? [];
+      list.push({ cost, changes, picks: picks.slice() });
+      list.sort((a, b) => a.cost - b.cost);
+      if (list.length > 2) list.length = 2; // 合計ごとに、上位2件だけ覚える
+      out.set(sum, list);
+      return;
+    }
+    for (const c of cands[i]) {
+      picks[i] = c.value;
+      walk(i + 1, sum + c.value, cost + c.cost, changes + (c.changed ? 1 : 0));
+    }
+  };
+  walk(0, 0, 0, 0);
+  return out;
+}
+
+// 自分と相手の判定の合計が合わないとき、読み間違いと思われる項目を、少ない補正で直す。
+//  ・同じ譜面を遊んでいるので、自分と相手の判定の合計（＝ノーツ数）は同じになるはず
+//  ・登録されている曲の総ノーツ数に合う合計になる補正を、優先する
+//  ・どれを直せばよいか決められないとき（候補が互角のとき）は、直さない
+// 補正したら、その内容（'相手のBAD 9 → 0' など）を返す。直さなかったら、空の配列。
+export function correctByTotals(
+  result: Record<Player, PlayerResult>,
+  conf: Record<Player, Record<Item, number>>,
+  alts: Record<Player, Record<Item, Alt[]>>,
+  knownTotals?: Set<number>
+): string[] {
+  const players: Player[] = ['me', 'opponent'];
+
+  // 全部の数字が読めているときだけ（読めていない項目は、別の処理で、差から推定する）
+  for (const p of players) {
+    if (JUDGE_ITEMS.some((j) => result[p][j] === null)) return [];
+  }
+
+  const sum = (p: Player) => JUDGE_ITEMS.reduce((a, j) => a + (result[p][j] as number), 0);
+  if (sum('me') === sum('opponent')) return []; // 合っているので、直す必要はない
+
+  const solutions = {} as Record<Player, Map<number, SideSolution[]>>;
+  for (const p of players) {
+    const cands = JUDGE_ITEMS.map((j) => buildCandidates(result[p][j] as number, conf[p][j], alts[p][j] ?? []));
+    solutions[p] = solveSide(cands);
+  }
+
+  // 2人の合計が同じになる組み合わせの中から、いちばん安いものを選ぶ
+  const options: { score: number; total: number; me: SideSolution; opp: SideSolution }[] = [];
+  for (const [total, meList] of solutions.me) {
+    const oppList = solutions.opponent.get(total);
+    if (!oppList || total < 50 || total > 5000) continue;
+    const adjust = knownTotals && knownTotals.size > 0 ? (knownTotals.has(total) ? -KNOWN_TOTAL_BONUS : UNKNOWN_TOTAL_PENALTY) : 0;
+    for (const me of meList) {
+      for (const opp of oppList) {
+        if (me.changes + opp.changes > MAX_CHANGES_TOTAL) continue;
+        options.push({ score: me.cost + opp.cost + adjust, total, me, opp });
+      }
+    }
+  }
+  if (options.length === 0) return [];
+
+  options.sort((a, b) => a.score - b.score);
+  const best = options[0];
+  if (best.score > MAX_CORRECTION_SCORE) return [];
+  // 2位との差が小さいときは、どちらが正しいか決められない（別の合計の候補なら、なおさら）
+  const second = options.find((o) => o !== best && (o.total !== best.total || o.me.picks.join() !== best.me.picks.join() || o.opp.picks.join() !== best.opp.picks.join()));
+  if (second && second.score - best.score < AMBIGUOUS_GAP) return [];
+
+  // 補正を反映する。補正した項目の信頼度は、「登録されている曲の合計に合い、補正が1か所だけ」なら高め、それ以外は低め
+  const changedCount = best.me.changes + best.opp.changes;
+  const validated = !!knownTotals && knownTotals.has(best.total) && changedCount === 1;
+  const corrections: string[] = [];
+  const apply = (p: Player, sol: SideSolution) => {
+    JUDGE_ITEMS.forEach((j, i) => {
+      const before = result[p][j] as number;
+      const after = sol.picks[i];
+      if (before !== after) {
+        result[p][j] = after;
+        conf[p][j] = validated ? 85 : 60;
+        corrections.push(`${PLAYER_JA[p]}の${ITEM_JA[j]} ${before} → ${after}`);
+      }
+    });
+  };
+  apply('me', best.me);
+  apply('opponent', best.opp);
+  return corrections;
 }
 
 // ============================================================
@@ -584,8 +826,12 @@ export function findJacketMatches(hex: string, records: JacketRecord[]): { songN
 // ============================================================
 
 // 読み込み済みの画像（img）と Tesseract のワーカーを渡すと、自分と相手の判定の数・ジャケットを読み取って返す
-export async function analyzeLoadedImage(img: ImageLike, worker: any): Promise<OcrResult> {
-  const { result, conf } = await readResult(img, worker);
+export async function analyzeLoadedImage(img: ImageLike, worker: any, options: AnalyzeOptions = {}): Promise<OcrResult> {
+  const { result, conf, alts } = await readResult(img, worker);
+
+  // 合計が合わないときは、読み間違いの補正を試す（0 と 9 の取り違えなど）
+  const knownTotals = options.knownTotals ? new Set(Array.from(options.knownTotals)) : undefined;
+  const corrections = correctByTotals(result, conf, alts, knownTotals);
 
   const mismatch = checkTotals(result, conf); // null が1個だけなら推定で埋める（信頼度0扱い）
 
@@ -615,7 +861,7 @@ export async function analyzeLoadedImage(img: ImageLike, worker: any): Promise<O
     console.error('ジャケットの読み取りに失敗:', e);
   }
 
-  return { me: result.me, opponent: result.opponent, jacket, trust, weakest };
+  return { me: result.me, opponent: result.opponent, jacket, trust, weakest, corrections };
 }
 
 // 数字は読まずに、ジャケットだけを読み取る（OCRを使わないので速い）
