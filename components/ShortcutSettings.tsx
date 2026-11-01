@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { SHORTCUT_TEMPLATE_URL } from '@/lib/siteContent';
 
 interface TokenStatus {
   hasToken: boolean;
@@ -190,10 +191,24 @@ export default function ShortcutSettings() {
       </div>
 
       {/* ショートカットの作り方 */}
+      {/* ワンタップで追加（管理者が、配布用ショートカットのリンクを設定しているとき） */}
+      {SHORTCUT_TEMPLATE_URL && (
+        <a
+          href={SHORTCUT_TEMPLATE_URL}
+          className="block text-center bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-bold py-3 rounded-xl text-sm transition shadow-lg"
+        >
+          📲 ショートカットを追加する（トークンを入れるだけ）
+        </a>
+      )}
+
+      {/* ショートカットの作り方 */}
       <details className="bg-black/30 border border-white/10 rounded-xl p-4 text-xs text-slate-300">
-        <summary className="cursor-pointer font-bold text-emerald-300">ショートカットの作り方</summary>
+        <summary className="cursor-pointer font-bold text-emerald-300">ショートカットの作り方（自分で作るとき）</summary>
         <ol className="list-decimal pl-5 mt-3 space-y-2 leading-relaxed">
           <li>iPhone の「ショートカット」アプリで、新しいショートカットを作ります。</li>
+          <li>
+            アクション「<b>テキスト</b>」を追加して、上で発行した<b>トークン</b>を貼り付けます（ほかのアクションが、このテキストを使います）。
+          </li>
           <li>
             アクション「<b>スクリーンショットを撮る</b>」を追加します（写真から送りたいときは、共有シートから画像を受け取る形にします）。
           </li>
@@ -205,18 +220,57 @@ export default function ShortcutSettings() {
             <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-400">
               <li>URL：上の「送信先のURL」</li>
               <li>方法：<b>POST</b></li>
-              <li>ヘッダ：名前 <code>Authorization</code>、値 <code>Bearer ＋ 空白 ＋ トークン</code></li>
+              <li>ヘッダ：名前 <code>Authorization</code>、値 <code>Bearer ＋ 空白 ＋ トークン（手順2のテキスト）</code></li>
               <li>本文を要求：<b>フォーム</b> → 「新規フィールドを追加」→ <b>ファイル</b>、キー <code>image</code>、値「変換されたイメージ」</li>
             </ul>
           </li>
           <li>
-            （おすすめ）「URLの内容を取得」のあとに、アクション「<b>辞書から値を取得</b>」（キー <code>message</code>）→「<b>通知を表示</b>」を
-            つなぐと、「✅ 登録しました：曲名（難易度）勝ち／ランク」や「📥 確認待ちにしました」が、通知で分かります。
+            アクション「<b>辞書から値を取得</b>」を2つ追加して、結果の <code>error</code> と <code>message</code> を取り出します。
+          </li>
+          <li>
+            アクション「<b>If</b>」で、<code>error</code> が <b>false</b> のとき → 「<b>アラートを表示</b>」で <code>message</code> を表示します。
+            そうでなければ（その他の場合）→ 「<b>アラートを表示</b>」で <code>message</code> を表示します（リザルト画面でないスクショを送ると、
+            「🚫 リザルト画面ではないようです」と出て、保存されません）。
           </li>
           <li>背面タップやアクションボタンに、このショートカットを割り当てます。</li>
         </ol>
+        <div className="mt-3 space-y-1 text-[10px] text-slate-500">
+          <p>※ 返ってくる <code>status</code> は、<code>registered</code>（自動で登録した）／<code>pending</code>（確認待ち）／<code>duplicate</code>（送信済み）／<code>rejected</code>（リザルト画面でない）のどれかです。</p>
+          <p>
+            ※ 登録できたときだけ、スクリーンショットを「写真」に保存したいときは、「If」の <code>saved</code> が <b>true</b> のときに、アクション
+            「<b>写真アルバムに保存</b>」をつなぎます。
+          </p>
+          <p>
+            ※ アクセスガイド中でも結果を見たいときは、手順7の「アラートを表示」のほかに、アクション「<b>テキストを読み上げ</b>」に
+            <code> message</code> をつなぐ方法があります（アクセスガイド中に表示・再生されるかは、お使いの環境で試してください）。
+          </p>
+          <p>※ アクションの表示名は、iOS のバージョンで少し違うことがあります。確認待ちの画像は、記録画面の「📥 確認待ちの画像」から取り込めます。</p>
+        </div>
+      </details>
+
+      {/* 配布用ショートカットの作り方（管理者向け） */}
+      <details className="bg-black/30 border border-white/10 rounded-xl p-4 text-xs text-slate-300">
+        <summary className="cursor-pointer font-bold text-cyan-300">配布用ショートカットの作り方（管理者向け）</summary>
+        <ol className="list-decimal pl-5 mt-3 space-y-2 leading-relaxed">
+          <li>上の「ショートカットの作り方」のとおりに、自分のショートカットを1つ作って、動くことを確かめます。</li>
+          <li>
+            手順2の「テキスト」のトークンを、<b>空にします</b>（自分のトークンを、配布物に入れないため）。
+          </li>
+          <li>
+            その「テキスト」アクションを開いて、右上の（ⅰ）→「<b>読み込み時の質問</b>」→「<b>質問を追加</b>」で、
+            「トークンを貼り付けてください」という質問を、そのテキストに結びつけます。
+            こうすると、追加した人には、<b>トークンを入れるだけの画面</b>が出ます。
+          </li>
+          <li>
+            共有ボタン →「<b>iCloudリンクをコピー</b>」で、リンクを作ります。
+          </li>
+          <li>
+            そのリンクを、プロジェクトの <code>lib/siteContent.ts</code> の <code>SHORTCUT_TEMPLATE_URL</code> に貼り付けて保存すると、
+            この画面の上に、<b>「ショートカットを追加する」ボタン</b>が出ます。
+          </li>
+        </ol>
         <p className="mt-3 text-[10px] text-slate-500">
-          ※ アクションの表示名は、iOS のバージョンで少し違うことがあります。確認待ちの画像は、記録画面の「📥 確認待ちの画像」から取り込めます。
+          ※ 送信先のURLは、ショートカットの中に入ります。ドメインを変えたときは、ショートカットを作り直して、リンクを更新してください。
         </p>
       </details>
     </div>

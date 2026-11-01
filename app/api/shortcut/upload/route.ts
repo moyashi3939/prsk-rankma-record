@@ -82,12 +82,12 @@ export async function POST(request: Request) {
   try {
     const owner = await ownerFromBearer(request);
     if (!owner) {
-      return NextResponse.json({ error: 'トークンが正しくありません' }, { status: 401 });
+      return NextResponse.json({ success: false, error: true, status: 'error', saved: false, message: 'トークンが正しくありません' }, { status: 401 });
     }
 
     const declared = Number(request.headers.get('content-length') || 0);
     if (declared > MAX_BYTES + 1024 * 64) {
-      return NextResponse.json({ error: '画像が大きすぎます（8MBまで）' }, { status: 413 });
+      return NextResponse.json({ success: false, error: true, status: 'error', saved: false, message: '画像が大きすぎます（8MBまで）' }, { status: 413 });
     }
 
     let buf: Buffer;
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
         file = Array.from(form.values()).find((v) => v instanceof File);
       }
       if (!(file instanceof File)) {
-        return NextResponse.json({ error: '画像が見つかりません（フィールド名は image にしてください）' }, { status: 400 });
+        return NextResponse.json({ success: false, error: true, status: 'error', saved: false, message: '画像が見つかりません（フィールド名は image にしてください）' }, { status: 400 });
       }
       buf = Buffer.from(await file.arrayBuffer());
     } else {
@@ -108,16 +108,22 @@ export async function POST(request: Request) {
     }
 
     if (buf.length === 0) {
-      return NextResponse.json({ error: '画像が空です' }, { status: 400 });
+      return NextResponse.json({ success: false, error: true, status: 'error', saved: false, message: '画像が空です' }, { status: 400 });
     }
     if (buf.length > MAX_BYTES) {
-      return NextResponse.json({ error: '画像が大きすぎます（8MBまで）' }, { status: 413 });
+      return NextResponse.json({ success: false, error: true, status: 'error', saved: false, message: '画像が大きすぎます（8MBまで）' }, { status: 413 });
     }
 
     const mime = sniffMime(buf);
     if (!mime) {
       return NextResponse.json(
-        { error: 'JPEG / PNG / WebP の画像だけ送れます（HEICの場合は、ショートカットで「イメージを変換」を使ってください）' },
+        {
+          success: false,
+          error: true,
+          status: 'error',
+          saved: false,
+          message: 'JPEG / PNG / WebP の画像だけ送れます（HEICの場合は、ショートカットで「イメージを変換」を使ってください）',
+        },
         { status: 415 }
       );
     }
@@ -146,6 +152,8 @@ export async function POST(request: Request) {
     if (dup.rows.length > 0) {
       return NextResponse.json({
         success: true,
+        error: false,
+        saved: false,
         status: 'duplicate',
         message: 'ℹ️ この画像は、すでに送信済みです（二重には登録しません）',
       });
@@ -188,6 +196,20 @@ export async function POST(request: Request) {
       pendingReasons.push('サーバーでの自動読み取りが使えないため、アプリで確認してください');
     }
 
+    // リザルト画面のスクショでなければ、エラーを返して、保存しない（変なスクショが混ざるのを防ぐ）
+    if (ocr && !ocr.isResultScreen) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: true,
+          status: 'rejected',
+          saved: false,
+          message: `🚫 リザルト画面ではないようです。ランクマッチのリザルト画面（横向き・全体）のスクショを送ってください。（${ocr.notResultReason ?? ''}）`,
+        },
+        { status: 422 }
+      );
+    }
+
     if (ocr) {
       const m = ocr.me;
       const mine = [m.perfect, m.great, m.good, m.bad, m.miss];
@@ -222,6 +244,8 @@ export async function POST(request: Request) {
 
         return NextResponse.json({
           success: true,
+          error: false,
+          saved: true,
           status: 'registered',
           message: `✅ 登録しました：${chart.song_name}（${chart.difficulty}）${RESULT_JA[saved.actualResult] ?? saved.actualResult}／${saved.rankText}`,
           song: chart.song_name,
@@ -252,6 +276,8 @@ export async function POST(request: Request) {
     const count = await query('SELECT COUNT(*)::int AS n FROM shortcut_uploads WHERE owner_id = $1', [owner]);
     return NextResponse.json({
       success: true,
+      error: false,
+      saved: false, // 登録はまだ（アプリで確認が必要）
       status: 'pending',
       message: `📥 確認待ちにしました（アプリで確認してください）：${reason}`,
       id: inserted.rows[0].id,
@@ -260,6 +286,6 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error('ショートカットからの画像受信エラー:', error);
-    return NextResponse.json({ error: 'Failed to receive image' }, { status: 500 });
+    return NextResponse.json({ success: false, error: true, status: 'error', saved: false, message: 'サーバーでエラーが発生しました' }, { status: 500 });
   }
 }

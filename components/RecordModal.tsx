@@ -156,6 +156,15 @@ export default function RecordModal({ isOpen, onClose, onSubmit, rankName }: Rec
   // 曲・難易度は、ジャケット・総ノーツ数（自分の判定の合計）・ジャケットのまわりの色から決める（lib/songMatch.ts）。
   // 決まったものを入力したうえで、念のため、他の候補も出す。
   const applyOcr = (ocr: OcrResult, base: typeof initialFormState) => {
+    // リザルト画面に見えないスクショは、数字を読み取らない
+    if (!ocr.isResultScreen) {
+      return {
+        form: base,
+        note: `リザルト画面として認識できませんでした（${ocr.notResultReason ?? ''}）。ランクマッチのリザルト画面全体（横向き）のスクショか、確認してください。`,
+        candidates: [] as SongFromDB[],
+      };
+    }
+
     const m = ocr.me;
     const o = ocr.opponent;
     const str = (v: number | null, prev: string) => (v === null ? prev : String(v));

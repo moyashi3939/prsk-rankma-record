@@ -45,6 +45,8 @@ export interface OcrResult {
   trust: number; // 全項目の信頼度(%)のうち、いちばん低いもの
   weakest: string; // そのいちばん信頼度が低かった項目（例: 'opponent/good'）
   corrections: string[]; // 自動で補正した読み取り（例: '相手のBAD 9 → 0'）。空なら、補正なし
+  isResultScreen: boolean; // リザルト画面のスクショに見えるか（そうでなければ、数字の読み取りは行わない）
+  notResultReason: string | null; // リザルト画面に見えない理由
 }
 
 // 読み取りのオプション
@@ -186,6 +188,72 @@ function whiteToBlack(canvas: CanvasLike, threshold: number) {
   ctx.putImageData(imgData, 0, 0);
 }
 
+// 1文字ぶんの形から、数字を見分ける（Tesseract の取り違えを防ぐための、補助の判定）
+//  ・「穴」（文字の中の、閉じた空白）の数と、穴の縦の位置で、0・6・8・9 を見分ける
+//  ・穴がなく、横幅がとても細ければ 1
+//  ・それ以外（2・3・5・7 など）は、形だけでは決められないので null（Tesseract の読み取りを使う）
+// ★ 実際のリザルト画面（iPhone / iPad）の数字で、確かめた値です
+interface GlyphShape {
+  digit: string | null;
+}
+
+function classifyGlyph(aspect: number, holes: { area: number; cy: number }[]): string | null {
+  if (holes.length >= 2) return '8';
+  if (holes.length === 1) {
+    const { area, cy } = holes[0];
+    if (cy < 0.4) return area >= 0.12 ? '9' : '4'; // 穴が上のほうにある（9 か 4）。4 は穴が小さい
+    if (cy > 0.6) return '6'; // 穴が下のほうにある
+    return '0'; // 穴が真ん中にある
+  }
+  return aspect < 0.38 ? '1' : null;
+}
+
+// 二値化した画像（ink[y*w+x] が1なら文字）のうち、x が a〜b、y が top〜bottom の範囲を1文字として、形を調べる
+function analyzeGlyphShape(ink: Uint8Array, w: number, a: number, b: number, top: number, bottom: number): GlyphShape {
+  const gw = b - a + 1;
+  const gh = bottom - top + 1;
+  const label = new Int32Array(gw * gh).fill(-1);
+  const holes: { area: number; cy: number }[] = [];
+  const stack: number[] = [];
+
+  for (let sy = 0; sy < gh; sy++) {
+    for (let sx = 0; sx < gw; sx++) {
+      const start = sy * gw + sx;
+      if (ink[(top + sy) * w + (a + sx)] === 1 || label[start] !== -1) continue;
+
+      // 背景（文字でない画素）のつながりを、たどる
+      let touchesEdge = false;
+      let count = 0;
+      let sumY = 0;
+      stack.length = 0;
+      stack.push(start);
+      label[start] = 1;
+      while (stack.length > 0) {
+        const cur = stack.pop()!;
+        const cx = cur % gw;
+        const cy = (cur - cx) / gw;
+        count++;
+        sumY += cy;
+        if (cx === 0 || cy === 0 || cx === gw - 1 || cy === gh - 1) touchesEdge = true;
+        const neighbors = [cx > 0 ? cur - 1 : -1, cx < gw - 1 ? cur + 1 : -1, cy > 0 ? cur - gw : -1, cy < gh - 1 ? cur + gw : -1];
+        for (const n of neighbors) {
+          if (n < 0 || label[n] !== -1) continue;
+          const nx = n % gw;
+          const ny = (n - nx) / gw;
+          if (ink[(top + ny) * w + (a + nx)] === 1) continue;
+          label[n] = 1;
+          stack.push(n);
+        }
+      }
+      // 外枠に触れていない背景が「穴」。小さすぎるものは、ノイズなので数えない
+      if (!touchesEdge && count >= 0.01 * gw * gh) {
+        holes.push({ area: count / (gw * gh), cy: sumY / count / gh });
+      }
+    }
+  }
+  return { digit: classifyGlyph(gw / gh, holes) };
+}
+
 // 黒い部分(文字)がある範囲だけを切り出し、高さを DIGIT_HEIGHT にそろえ、白い余白をつけて返す
 // 文字が見つからなかったら null を返す
 function normalizeDigits(c: CanvasLike): CanvasLike | null {
@@ -223,20 +291,33 @@ function normalizeDigits(c: CanvasLike): CanvasLike | null {
   // 見つかった「文字」が小さすぎるときは、文字ではなくノイズなので使わない
   if (bottom - top + 1 < h * MIN_DIGIT_RATIO) return null;
 
-  // 文字が何個に見えるか（黒い画素のある列が、2列以上のすき間で区切られているところで数える）
-  let glyphs = 0;
+  // 文字が何個に見えるか（黒い画素のある列が、2列以上のすき間で区切られているところで数える）。1文字ごとの範囲も覚える
+  const segments: [number, number][] = [];
   let inGlyph = false;
   let gap = 0;
+  let segStart = 0;
+  let segLast = 0;
   for (let x = left; x <= right; x++) {
     if (colCount[x] >= MIN_INK) {
-      if (!inGlyph) glyphs++;
+      if (!inGlyph) segStart = x;
       inGlyph = true;
       gap = 0;
+      segLast = x;
     } else {
       gap++;
-      if (gap >= 2) inGlyph = false;
+      if (gap >= 2 && inGlyph) {
+        segments.push([segStart, segLast]);
+        inGlyph = false;
+      }
     }
   }
+  if (inGlyph) segments.push([segStart, segLast]);
+  const glyphs = segments.length;
+
+  // 1文字ごとの形（穴の数・位置）を調べる
+  const ink = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) ink[i] = d[i * 4] === 0 ? 1 : 0;
+  const shapes: GlyphShape[] = segments.map(([a, b]) => analyzeGlyphShape(ink, w, a, b, top, bottom));
 
   const bw = right - left + 1;
   const bh = bottom - top + 1;
@@ -250,6 +331,7 @@ function normalizeDigits(c: CanvasLike): CanvasLike | null {
   octx.fillRect(0, 0, out.width, out.height);
   octx.drawImage(c, left, top, bw, bh, PAD, PAD, ow, DIGIT_HEIGHT);
   (out as any).glyphs = glyphs; // 読み取りのときに、文字の数の確認に使う
+  (out as any).shapes = shapes; // 1文字ごとの形から見分けた数字（取り違えの防止に使う）
   return out;
 }
 
@@ -309,6 +391,14 @@ interface NumberReading {
 //  ・何も読めなかったら「1文字モード」「2個並べ」でもう一度試す
 async function readNumber(worker: any, canvas: CanvasLike): Promise<NumberReading> {
   const glyphs: number | undefined = (canvas as any).glyphs;
+  const shapes: GlyphShape[] | undefined = (canvas as any).shapes;
+
+  // 文字が1つで、形が「0」か「1」と、はっきり分かるときは、Tesseract を使わずに決める（速く、取り違えない）
+  if (shapes && shapes.length === 1 && (shapes[0].digit === '0' || shapes[0].digit === '1')) {
+    const v = parseInt(shapes[0].digit, 10);
+    return { value: v, confidence: 97, alts: [{ value: v, conf: 97 }] };
+  }
+
   const readings: { digits: string; conf: number; single?: boolean }[] = [];
 
   const recognize = async (c: CanvasLike) => {
@@ -375,10 +465,33 @@ async function readNumber(worker: any, canvas: CanvasLike): Promise<NumberReadin
     alts.set(v, Math.max(alts.get(v) ?? 0, r.conf));
   }
 
+  // 1文字ごとの形から見分けた数字で、Tesseract の取り違えを直す（0・6・8・1 は、形ではっきり分かる。9 と 4 は、穴の大きさで見分ける）
+  let digits = primary.digits;
+  let confidence = primary.conf;
+  if (shapes && shapes.length === digits.length) {
+    const chars = digits.split('');
+    shapes.forEach((sh, i) => {
+      const ocr = chars[i];
+      if (!sh.digit || sh.digit === ocr) return;
+      const overrides =
+        sh.digit === '0' || sh.digit === '6' || sh.digit === '8' || sh.digit === '1' ||
+        (sh.digit === '9' && ocr !== '4') ||
+        (sh.digit === '4' && (ocr === '0' || ocr === '6' || ocr === '8'));
+      if (overrides) {
+        chars[i] = sh.digit;
+        confidence = Math.max(confidence, 90);
+      }
+    });
+    digits = chars.join('');
+  }
+
+  const value = parseInt(digits, 10);
+  alts.set(value, Math.max(alts.get(value) ?? 0, confidence));
+
   return {
-    value: parseInt(primary.digits, 10),
-    confidence: primary.conf,
-    alts: Array.from(alts, ([value, conf]) => ({ value, conf })),
+    value,
+    confidence,
+    alts: Array.from(alts, ([v, conf]) => ({ value: v, conf })),
   };
 }
 
@@ -822,11 +935,82 @@ export function findJacketMatches(hex: string, records: JacketRecord[]): { songN
 }
 
 // ============================================================
+// リザルト画面かどうかの判定
+// ============================================================
+
+function rgbToHsv(r: number, g: number, b: number) {
+  const rr = r / 255, gg = g / 255, bb = b / 255;
+  const max = Math.max(rr, gg, bb), min = Math.min(rr, gg, bb);
+  const d = max - min;
+  let h = 0;
+  if (d > 0) {
+    if (max === rr) h = ((gg - bb) / d) % 6;
+    else if (max === gg) h = (bb - rr) / d + 2;
+    else h = (rr - gg) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return { h, s: max === 0 ? 0 : d / max, v: max };
+}
+
+// 画像の一部分（画面の幅・高さに対する割合）の、平均の色
+function averageColor(img: ImageLike, x0: number, x1: number, y0: number, y1: number) {
+  const c = env().createCanvas(8, 8);
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, x0 * img.width, y0 * img.height, (x1 - x0) * img.width, (y1 - y0) * img.height, 0, 0, 8, 8);
+  const d = ctx.getImageData(0, 0, 8, 8).data;
+  let r = 0, g = 0, b = 0;
+  for (let i = 0; i < 64; i++) {
+    r += d[i * 4];
+    g += d[i * 4 + 1];
+    b += d[i * 4 + 2];
+  }
+  return { r: r / 64, g: g / 64, b: b / 64 };
+}
+
+// リザルト画面のスクショかどうか。
+// 画面の一番上に、左が「オレンジ（YOU）」、右が「水色（RIVAL）」の帯があるのが、この画面の特徴。
+// ★ iPhone / iPad の実際のリザルト画面で確かめた値（オレンジ: 色相24〜25° / 水色: 色相199〜200°）
+export function checkResultScreen(img: ImageLike): { ok: boolean; reason: string | null } {
+  if (img.width < img.height * 1.2) {
+    return { ok: false, reason: '横向きの画面のスクショではありません（リザルト画面は横向きです）' };
+  }
+
+  const left = averageColor(img, 0.01, 0.06, 0.02, 0.06);
+  const right = averageColor(img, 0.94, 0.99, 0.02, 0.06);
+  const l = rgbToHsv(left.r, left.g, left.b);
+  const r = rgbToHsv(right.r, right.g, right.b);
+
+  const leftOk = l.h >= 10 && l.h <= 45 && l.s >= 0.4 && l.v >= 0.8; // オレンジ
+  const rightOk = r.h >= 185 && r.h <= 215 && r.s >= 0.4 && r.v >= 0.8; // 水色
+  if (!leftOk || !rightOk) {
+    return { ok: false, reason: '画面の上の、オレンジ（YOU）と水色（RIVAL）の帯が見つかりません' };
+  }
+  return { ok: true, reason: null };
+}
+
+// ============================================================
 // 読み込み済みの画像を、読み取る
 // ============================================================
 
 // 読み込み済みの画像（img）と Tesseract のワーカーを渡すと、自分と相手の判定の数・ジャケットを読み取って返す
 export async function analyzeLoadedImage(img: ImageLike, worker: any, options: AnalyzeOptions = {}): Promise<OcrResult> {
+  // リザルト画面でなければ、数字の読み取りはしない（時間のむだと、読み間違いを防ぐ）
+  const screen = checkResultScreen(img);
+  if (!screen.ok) {
+    const empty = (): PlayerResult => ({ perfect: null, great: null, good: null, bad: null, miss: null, combo: null });
+    return {
+      me: empty(),
+      opponent: empty(),
+      jacket: null,
+      trust: 0,
+      weakest: 'リザルト画面ではない',
+      corrections: [],
+      isResultScreen: false,
+      notResultReason: screen.reason,
+    };
+  }
+
   const { result, conf, alts } = await readResult(img, worker);
 
   // 合計が合わないときは、読み間違いの補正を試す（0 と 9 の取り違えなど）
@@ -861,7 +1045,7 @@ export async function analyzeLoadedImage(img: ImageLike, worker: any, options: A
     console.error('ジャケットの読み取りに失敗:', e);
   }
 
-  return { me: result.me, opponent: result.opponent, jacket, trust, weakest, corrections };
+  return { me: result.me, opponent: result.opponent, jacket, trust, weakest, corrections, isResultScreen: true, notResultReason: null };
 }
 
 // 数字は読まずに、ジャケットだけを読み取る（OCRを使わないので速い）

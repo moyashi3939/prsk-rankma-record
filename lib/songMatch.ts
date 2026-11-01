@@ -19,13 +19,14 @@ export interface DifficultyColor {
   b: number;
 }
 
-// ジャケットのまわりの色の、初期値（ゲーム内の難易度の色に近い値）。
-// ★ ざっくりした値です。使っているうちに、実際に記録した画像の色を覚えて（difficulty_colors テーブル）、
-//    その値のほうを優先して使います。
+// ジャケットのまわりの色の、初期値（ゲーム内の難易度の色）。
+//  ・EXPERT・MASTER は、実際のリザルト画面のスクショで測った値（枠は、ほぼ単色）
+//  ・HARD・APPEND は、スクショがないので、見た目からの推定です
+// 使っているうちに、実際に記録した画像の色を覚えて（difficulty_colors テーブル）、その値のほうを優先して使います。
 export const DEFAULT_DIFFICULTY_COLORS: DifficultyColor[] = [
   { difficulty: 'HARD', r: 255, g: 170, b: 0 },
-  { difficulty: 'EXPERT', r: 238, g: 68, b: 68 },
-  { difficulty: 'MASTER', r: 187, g: 51, b: 238 },
+  { difficulty: 'EXPERT', r: 255, g: 68, b: 119 },
+  { difficulty: 'MASTER', r: 204, g: 51, b: 255 },
   { difficulty: 'APPEND', r: 255, g: 136, b: 221 },
 ];
 
