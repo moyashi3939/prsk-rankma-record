@@ -248,6 +248,44 @@ export default function ShortcutSettings() {
         </div>
       </details>
 
+      {/* つながらないとき */}
+      <details className="bg-black/30 border border-amber-500/30 rounded-xl p-4 text-xs text-slate-300">
+        <summary className="cursor-pointer font-bold text-amber-300">「ネットワーク接続エラー」が出るとき</summary>
+        <div className="mt-3 space-y-3 leading-relaxed">
+          <p className="text-slate-400">
+            このエラーは、ショートカットから<b className="text-slate-200">サーバーまで、リクエストが届いていない</b>ときに出ます。次の順に、確かめてください。
+          </p>
+          <ol className="list-decimal pl-5 space-y-2">
+            <li>
+              iPhone の <b>Safari</b> で、次のアドレスを開きます。<code className="break-all">{origin}/api/health</code>
+              <br />
+              <code>{'{"ok":true,…}'}</code> と出れば、サーバーまで届いています（4へ）。開けなければ、ネットワークの問題です（2・3へ）。
+            </li>
+            <li>
+              <b>アドレスが、スマホから届くものか</b>確かめます。<code>localhost</code> や <code>127.0.0.1</code> は、スマホからは届きません。
+              パソコンで試しているときは、パソコンの IP アドレス（例: <code>http://192.168.x.x:3000</code>）を使い、スマホとパソコンを<b>同じ Wi-Fi</b> に
+              つなぎます（モバイル通信や VPN はオフにします）。
+            </li>
+            <li>
+              パソコンの<b>ファイアウォール</b>が、3000番への接続を止めていないか確認します（Windows なら、「Node.js」の通信を、プライベートネットワークで許可します）。
+              <br />
+              iPhone が、パソコンの IP アドレスにつなぐときは、「設定 → ショートカット」（または「アプリ」→「ショートカット」）で、<b>「ローカルネットワーク」を、オン</b>にします。
+            </li>
+            <li>
+              トークンとサーバーを確かめます。ショートカットで、<b>「URLの内容を取得」を GET にして</b>、URL を <code className="break-all">{origin}/api/shortcut/ping</code>、
+              ヘッダに <code>Authorization: Bearer トークン</code> をつけて実行します。<code>✅ 接続OK</code> と返れば、つながっています。
+            </li>
+            <li>
+              それでも出るときは、管理者画面の<b>「📜 サーバーログ」</b>を開いたまま、ショートカットを実行します。
+              <code>ショートカット受信</code> の行が出れば、サーバーには届いています（エラーの理由が、続けて出ます）。何も出なければ、届いていません（1〜3を見直します）。
+            </li>
+            <li>
+              送る画像が大きいと、時間がかかります。「イメージを変換」で JPEG にして、できれば、サイズも小さくします。公開しているサーバーなら、HTTPS のアドレスを使います。
+            </li>
+          </ol>
+        </div>
+      </details>
+
       {/* 配布用ショートカットの作り方（管理者向け） */}
       <details className="bg-black/30 border border-white/10 rounded-xl p-4 text-xs text-slate-300">
         <summary className="cursor-pointer font-bold text-cyan-300">配布用ショートカットの作り方（管理者向け）</summary>

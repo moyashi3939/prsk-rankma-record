@@ -8,6 +8,7 @@ import { analyzeResultBuffer, isServerOcrAvailable } from '@/lib/serverOcr';
 import { describeWeakest, type OcrResult } from '@/lib/ocrCore';
 import { identifySong, type DifficultyColor, type SongRow } from '@/lib/songMatch';
 import { recordMatchForOwner } from '@/lib/recordMatch';
+import { serverLog } from '@/lib/logBuffer';
 
 const MAX_BYTES = 8 * 1024 * 1024; // 1枚あたり8MBまで
 const MAX_PENDING = 30; // 受信箱（保留）に溜められる枚数（超えたら古いものから消す）
@@ -27,6 +28,25 @@ function sniffMime(buf: Buffer): string | null {
     return 'image/webp';
   }
   return null;
+}
+
+// 処理が、決めた時間より長くかかったときに、エラーにする。
+// （サーバーが返事をしないまま待たせると、iPhone のショートカットが「ネットワーク接続エラー」になってしまうため、
+//   時間内に終わらなければ、読み取りをあきらめて、「確認待ち」として返す）
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}が${Math.round(ms / 1000)}秒以内に終わりませんでした`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
 }
 
 const RESULT_JA: Record<string, string> = { WIN: '勝ち', LOSE: '負け', DRAW: '引き分け', 'WIN (AP DRAW)': '引き分け（両者AP）' };
@@ -81,6 +101,9 @@ function judgeAutoRegister(ocr: OcrResult, identify: ReturnType<typeof identifyS
 export async function POST(request: Request) {
   try {
     const owner = await ownerFromBearer(request);
+    serverLog.info(
+      `ショートカット受信: ${request.headers.get('content-length') ?? '?'} bytes / ${(request.headers.get('content-type') ?? '').split(';')[0]}${owner ? '' : '（トークンが正しくありません）'}`
+    );
     if (!owner) {
       return NextResponse.json({ success: false, error: true, status: 'error', saved: false, message: 'トークンが正しくありません' }, { status: 401 });
     }
@@ -150,6 +173,7 @@ export async function POST(request: Request) {
       [owner, sha256]
     );
     if (dup.rows.length > 0) {
+      serverLog.info('ショートカット：送信済みの画像のため、何もしませんでした');
       return NextResponse.json({
         success: true,
         error: false,
@@ -170,7 +194,15 @@ export async function POST(request: Request) {
     let colorRows: DifficultyColor[] = [];
     let currentRank: string | null = null;
 
-    if (await isServerOcrAvailable()) {
+    let ocrAvailable = false;
+    try {
+      ocrAvailable = await withTimeout(isServerOcrAvailable(), 25000, 'サーバーの読み取りの準備');
+    } catch (err) {
+      console.error('サーバーでの画像読み取りの準備エラー:', err);
+      pendingReasons.push('サーバーの読み取りの準備に時間がかかったため、アプリで確認してください');
+    }
+
+    if (ocrAvailable) {
       try {
         await ensureSongJackets();
         await ensureDifficultyColors();
@@ -187,17 +219,26 @@ export async function POST(request: Request) {
         currentRank = rankRes.rows[0]?.rank_name ?? null;
 
         // 登録されている曲の総ノーツ数を渡すと、数字の読み間違い（0 と 9 の取り違えなど）を、合計から補正できる
-        ocr = await analyzeResultBuffer(buf, { knownTotals: songsRows.map((s) => Number(s.total_notes)).filter(Number.isFinite) });
+        ocr = await withTimeout(
+          analyzeResultBuffer(buf, { knownTotals: songsRows.map((s) => Number(s.total_notes)).filter(Number.isFinite) }),
+          30000,
+          '画像の読み取り'
+        );
       } catch (err) {
         console.error('サーバーでの画像読み取りエラー:', err);
-        pendingReasons.push('画像の読み取りに失敗しました');
+        pendingReasons.push(
+          err instanceof Error && err.message.includes('以内に終わりませんでした')
+            ? '読み取りに時間がかかったため、アプリで確認してください'
+            : '画像の読み取りに失敗しました'
+        );
       }
-    } else {
+    } else if (pendingReasons.length === 0) {
       pendingReasons.push('サーバーでの自動読み取りが使えないため、アプリで確認してください');
     }
 
     // リザルト画面のスクショでなければ、エラーを返して、保存しない（変なスクショが混ざるのを防ぐ）
     if (ocr && !ocr.isResultScreen) {
+      serverLog.warn(`ショートカット：リザルト画面ではないため、受け付けませんでした（${ocr.notResultReason ?? ''}）`);
       return NextResponse.json(
         {
           success: false,
@@ -241,6 +282,7 @@ export async function POST(request: Request) {
         });
 
         await query('INSERT INTO shortcut_processed (owner_id, sha256) VALUES ($1, $2) ON CONFLICT DO NOTHING', [owner, sha256]);
+        serverLog.info(`ショートカット：自動登録しました（${chart.song_name} ${chart.difficulty} / ${saved.actualResult}）`);
 
         return NextResponse.json({
           success: true,
@@ -273,6 +315,7 @@ export async function POST(request: Request) {
       [owner, MAX_PENDING]
     );
 
+    serverLog.info(`ショートカット：確認待ちにしました（${reason}）`);
     const count = await query('SELECT COUNT(*)::int AS n FROM shortcut_uploads WHERE owner_id = $1', [owner]);
     return NextResponse.json({
       success: true,

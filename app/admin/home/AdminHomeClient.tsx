@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import AdminStats from '@/components/AdminStats';
 import Link from 'next/link';
 
 export default function AdminHomePage() {
@@ -147,6 +148,9 @@ export default function AdminHomePage() {
             <Link href="/admin/jackets" className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-xl text-xs transition">
               🖼️ ジャケット管理へ
             </Link>
+            <Link href="/admin/logs" className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-xl text-xs transition">
+              📜 サーバーログへ
+            </Link>
             <Link href="/settings" className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-xl text-xs transition">
               ⚙️ ユーザー設定へ
             </Link>
@@ -161,6 +165,9 @@ export default function AdminHomePage() {
             {message}
           </div>
         )}
+
+        {/* アカウント数・利用状況・サーバーの状態 */}
+        <AdminStats />
 
         {/* 1. シーズン新規追加フォーム */}
         <div className="glass-panel p-6 rounded-3xl border border-white/10 space-y-4 bg-slate-900/40">

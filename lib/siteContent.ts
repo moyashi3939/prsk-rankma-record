@@ -169,7 +169,8 @@ export const TERMS: TermsSection[] = [
   {
     heading: '7. 免責事項',
     paragraphs: [
-      '本サービスは、情報の正確性や、継続的な提供を保証しません。画像の読み取りの結果には、誤りが含まれることがあります。内容は、保存の前に確認してください。',
+     '当サービスで利用している画像・データ等の知的財産権は、株式会社セガ、株式会社Colorful Palette、およびクリプトン・フューチャー・メディア株式会社に帰属します。',
+      '© SEGA / © Colorful Palette Inc. / © Crypton Future Media, INC. www.piapro.net All rights reserved.',
       '本サービスの利用によって生じた損害や、データの消失について、運営者は責任を負いません。また、予告なく、内容の変更や提供の終了をすることがあります。',
     ],
   },
@@ -179,7 +180,7 @@ export const TERMS: TermsSection[] = [
   },
   {
     heading: '9. 連絡先',
-    paragraphs: ['【お問い合わせの連絡先（X のアカウントやメールアドレスなど）を書いてください。】'],
+    paragraphs: ['x(旧Twitter)@sakura_deshu'],
   },
 ];
 
@@ -206,6 +207,7 @@ export const CREDITS: CreditGroup[] = [
       { name: 'ばうむ', role: 'リザルト画像の読み取り方式を、提供してくれました' },
       { name: 'AinA', role: '動作確認・データ登録協力' },
        { name: 'あきいちご', role: '動作確認・ご意見をくれました' },
+       { name: 'ヒロくん', role: '動作確認・ご意見をくれました' },
     ],
   },
   {

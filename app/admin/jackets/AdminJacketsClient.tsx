@@ -227,6 +227,12 @@ export default function AdminJacketsPage() {
             >
               🎵 楽曲管理へ
             </Link>
+            <Link
+              href="/admin/logs"
+              className="bg-white/10 hover:bg-white/20 text-white font-bold py-2 px-4 rounded-xl text-xs transition"
+            >
+              📜 サーバーログへ
+            </Link>
           </div>
         </div>
 
