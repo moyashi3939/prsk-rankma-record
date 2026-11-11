@@ -228,7 +228,8 @@ export default function ShortcutSettings() {
             アクション「<b>辞書から値を取得</b>」を2つ追加して、結果の <code>error</code> と <code>message</code> を取り出します。
           </li>
           <li>
-            アクション「<b>If</b>」で、<code>error</code> が <b>false</b> のとき → 「<b>アラートを表示</b>」で <code>message</code> を表示します。
+            アクション「<b>If</b>」で、<code>error</code>（辞書から取り出した値）が <b>false</b> のとき → 「<b>アラートを表示</b>」で <code>message</code> を表示します。
+            ※ レスポンスの文章（<code>"error":false</code>）と、文字どおりに比べる作り方は、書き間違い（<code>false</code> が <code>fakes</code> になるなど）や、空白の違いで、いつも「その他の場合」になりがちです。「辞書から値を取得」で <code>error</code> を取り出して比べてください。
             そうでなければ（その他の場合）→ 「<b>アラートを表示</b>」で <code>message</code> を表示します（リザルト画面でないスクショを送ると、
             「🚫 リザルト画面ではないようです」と出て、保存されません）。
           </li>
@@ -253,8 +254,18 @@ export default function ShortcutSettings() {
         <summary className="cursor-pointer font-bold text-amber-300">「ネットワーク接続エラー」が出るとき</summary>
         <div className="mt-3 space-y-3 leading-relaxed">
           <p className="text-slate-400">
-            このエラーは、ショートカットから<b className="text-slate-200">サーバーまで、リクエストが届いていない</b>ときに出ます。次の順に、確かめてください。
+            このエラーは、ショートカットから<b className="text-slate-200">サーバーまで、リクエストが届いていない</b>、または<b className="text-slate-200">途中で切れた</b>ときに出ます。
+            「ネットワーク接続が切れました」は、画像を送っている途中で、つながりが切れたことを表します。次の順に、確かめてください。
           </p>
+          <ul className="list-disc pl-5 space-y-1 text-amber-200/90">
+            <li>
+              <b>画面の右上に「VPN」と出ていませんか。</b>VPN をオフにして、もう一度試してください（大きな画像を送るとき、VPN で切れることがあります）。
+            </li>
+            <li>
+              「URLの内容を取得」を、<b>GET の接続テスト（下の4）</b>に置き換えて、これが通るか確かめてください。小さな通信は通るのに、画像を送ると切れるなら、
+              <b>画像を送るときだけ</b>の問題です（VPN・モバイル通信・サーバー側の読み取りの落ち）。
+            </li>
+          </ul>
           <ol className="list-decimal pl-5 space-y-2">
             <li>
               iPhone の <b>Safari</b> で、次のアドレスを開きます。<code className="break-all">{origin}/api/health</code>
@@ -281,6 +292,11 @@ export default function ShortcutSettings() {
             </li>
             <li>
               送る画像が大きいと、時間がかかります。「イメージを変換」で JPEG にして、できれば、サイズも小さくします。公開しているサーバーなら、HTTPS のアドレスを使います。
+            </li>
+            <li>
+              <b>公開サーバーで、画像を送るときだけ切れる</b>ときは、サーバーが、読み取りの途中で落ちている可能性があります。サーバーで
+              <code> pm2 status </code>（再起動の回数が増えていないか）と、<code> pm2 logs rankma --lines 100 </code>（落ちる直前のエラー）を確認してください。
+              また、Caddy を使っているときは、<code>DEPLOY.md</code> の「iPhone で、ネットワーク接続が切れるとき」（HTTP/3 を止める設定）も試してください。
             </li>
           </ol>
         </div>

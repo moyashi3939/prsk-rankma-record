@@ -308,3 +308,28 @@ export function describeRankState(state: RankState): string {
   if (state.rankName === MASTER) return `${MASTER} ${state.grains}粒（ボーナス ${state.bonus}）`;
   return `${state.rankName} クラス ${state.classIndex + 1} ${state.grains}粒（ボーナス ${state.bonus}）`;
 }
+
+// ---------------- 分析（グラフ）用 ----------------
+
+// ランクの進み具合を、1つの数字（ランクポイント換算）にする。
+//  ルーキー1の0粒 = 0、ルーキー1の5粒 = 5、ルーキー2の0粒 = 5 … ブロンズは 20 から、1つのランクで 20 ずつ増える。
+//  マスターは、120（= 6ランク × 20）から、粒の数だけ増えていく。判定マッチ中は null。
+export function rankPoints(state: RankState): number | null {
+  if (!state.isPlacementCompleted || state.rankName === PLACEMENT_NAME) return null;
+  const tier = (RANKS as readonly string[]).indexOf(state.rankName);
+  if (tier < 0) return null;
+  const perRank = CLASS_COUNT * MAX_GRAINS;
+  if (state.rankName === MASTER) return tier * perRank + state.grains;
+  return tier * perRank + state.classIndex * MAX_GRAINS + state.grains;
+}
+
+// 最初の状態から、対戦を1つずつ当てはめて、「その試合のあとの状態」を、すべて返す
+export function replaySeries(baseline: Baseline, records: MatchRecordLite[]): RankState[] {
+  const out: RankState[] = [];
+  let state = initialState(baseline);
+  for (const r of records) {
+    state = applyResult(state, r.result, baseline.placementChoice, r.flags);
+    out.push(state);
+  }
+  return out;
+}

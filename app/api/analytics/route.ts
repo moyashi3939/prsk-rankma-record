@@ -1,112 +1,70 @@
-// このAPIルートが静的ビルドの対象にならないようにする
-export const dynamic = 'force-dynamic';
-
+// app/api/analytics/route.ts
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { ensureOwnerColumns } from '@/lib/schema';
 import { getOwnerId } from '@/lib/session';
+import { toAMatch } from '@/lib/analytics';
+import { baselineFromRow, initialState, rankPoints, replaySeries } from '@/lib/rank';
+import { deriveMatchFlags } from '@/lib/matchCalc';
 
+// 自分の対戦記録を、分析用の小さなデータにして返す。集計は、画面側で（フィルタを変えるたびに）行う。
+// ランクの推移は、「最初の状態」が分かっているときだけ、対戦を最初から当てはめ直して作る。
 export async function GET() {
   try {
     await ensureOwnerColumns();
     const owner = await getOwnerId();
 
-    // 自分の対戦記録だけを集計する
-    const matchesResult = await query('SELECT * FROM matches WHERE owner_id = $1 ORDER BY id ASC', [owner]);
-    const matches = matchesResult.rows;
+    const matchesRes = await query('SELECT * FROM matches WHERE owner_id = $1 ORDER BY id ASC', [owner]);
+    const rankRes = await query('SELECT * FROM rank_status WHERE owner_id = $1 LIMIT 1', [owner]);
+    const rankRow = rankRes.rows[0];
 
-    const totalMatches = matches.length;
+    const matches = matchesRes.rows.map(toAMatch);
 
-    if (totalMatches === 0) {
-      return NextResponse.json({
-        summary: { total: 0, wins: 0, winRate: 0, fcRate: 0, apRate: 0, neuralIndex: 0, avgScoreDiff: 0 },
-        timeline: [],
-        songAnalysis: [],
-      });
+    // ランクの推移
+    let rankProgress: { id: number; points: number | null; rank: string; classIndex: number; grains: number; bonus: number }[] | null = null;
+    let rankStart: number | null = null;
+    if (rankRow?.baseline_known) {
+      const afterId: number = rankRow.baseline_after_id ?? 0;
+      const rows = matchesRes.rows.filter((r) => r.id > afterId);
+      const baseline = baselineFromRow(rankRow);
+      const states = replaySeries(
+        baseline,
+        rows.map((r) => ({
+          result: String(r.result ?? ''),
+          flags: {
+            ...deriveMatchFlags({
+              perf: r.my_perf ?? 0,
+              great: r.my_great ?? 0,
+              good: r.my_good ?? 0,
+              bad: r.my_bad ?? 0,
+              miss: r.my_miss ?? 0,
+            }),
+            isOpponentHigher: !!r.is_opponent_higher,
+          },
+        }))
+      );
+      rankStart = rankPoints(initialState(baseline));
+      rankProgress = states.map((st, i) => ({
+        id: rows[i].id,
+        points: rankPoints(st),
+        rank: st.rankName,
+        classIndex: st.classIndex,
+        grains: st.grains,
+        bonus: st.bonus,
+      }));
     }
 
-    let wins = 0;
-    let fcCount = 0;
-    let apCount = 0;
-    let totalScoreDiff = 0;
-
-    const songStatsMap: { [key: string]: { wins: number; total: number; totalScore: number } } = {};
-
-    const timeline = matches.map((m, index) => {
-      const isWin = m.result.includes('WIN');
-      if (isWin) wins++;
-
-      const perf = m.my_perf ?? 0;
-      const great = m.my_great ?? 0;
-      const good = m.my_good ?? 0;
-      const bad = m.my_bad ?? 0;
-      const miss = m.my_miss ?? 0;
-
-      // 厳密なFC / AP判定
-      const totalNotes = perf + great + good + bad + miss;
-      const isFC = miss === 0 && bad === 0 && totalNotes > 0;
-      const isAP = isFC && good === 0 && great === 0 && perf > 0;
-
-      if (isFC) fcCount++;
-      if (isAP) apCount++;
-
-      const scoreDiff = (m.my_score ?? 0) - (m.opp_score ?? 0);
-      totalScoreDiff += scoreDiff;
-
-      const key = `${m.song_name} (${m.difficulty})`;
-      if (!songStatsMap[key]) {
-        songStatsMap[key] = { wins: 0, total: 0, totalScore: 0 };
-      }
-      songStatsMap[key].total++;
-      if (isWin) songStatsMap[key].wins++;
-      songStatsMap[key].totalScore += (m.my_score ?? 0);
-
-      return {
-        id: m.id,
-        index: index + 1,
-        songName: m.song_name,
-        difficulty: m.difficulty,
-        level: m.level,
-        result: m.result,
-        scoreDiff,
-        myScore: m.my_score,
-        oppScore: m.opp_score,
-        createdAt: m.created_at,
-      };
-    });
-
-    const winRate = Math.round((wins / totalMatches) * 100);
-    const fcRate = Math.round((fcCount / totalMatches) * 100);
-    const apRate = Math.round((apCount / totalMatches) * 100);
-    const neuralIndex = Math.round((winRate * 1.5) + (fcRate * 0.8) + (apRate * 2) + Math.min(totalMatches * 2, 100));
-
-    const songAnalysis = Object.keys(songStatsMap).map((key) => {
-      const stat = songStatsMap[key];
-      const winRate = Math.round((stat.wins / stat.total) * 100);
-      return {
-        name: key,
-        total: stat.total,
-        wins: stat.wins,
-        winRate,
-        avgScore: Math.round(stat.totalScore / stat.total),
-      };
-    }).sort((a, b) => b.winRate - a.winRate);
+    const seasons = Array.from(new Set(matches.map((m) => m.seasonId).filter((s): s is string => !!s)));
 
     return NextResponse.json({
-      summary: {
-        total: totalMatches,
-        wins,
-        winRate,
-        fcRate,
-        apRate,
-        neuralIndex,
-        avgScoreDiff: Math.round(totalScoreDiff / totalMatches),
-      },
-      timeline,
-      songAnalysis,
+      matches,
+      rankProgress,
+      rankStart,
+      seasons,
+      currentSeason: rankRow?.season_id ?? null,
     });
   } catch (error) {
-    console.error('アナリティクス集計エラー:', error);
-    return NextResponse.json({ error: 'Failed to analyze data' }, { status: 500 });
+    console.error('分析データ取得エラー:', error);
+    return NextResponse.json({ error: 'Failed to fetch analytics' }, { status: 500 });
   }
 }
