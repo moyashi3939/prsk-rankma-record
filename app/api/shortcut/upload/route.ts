@@ -30,6 +30,20 @@ function sniffMime(buf: Buffer): string | null {
   return null;
 }
 
+// リクエストの本文（画像）を、最後まで読み捨てる。
+// 本文を読まないまま、先にエラーを返して通信を閉じると、iPhone は、画像を送っている途中で切られたことになり、
+// 「ネットワーク接続が切れました」と表示してしまう（エラーの理由が、見えなくなる）。
+// そのため、先に返すエラー（トークン違いなど）でも、本文を読み捨ててから、返す。
+async function drainBody(request: Request) {
+  const declared = Number(request.headers.get('content-length') || 0);
+  if (declared > MAX_BYTES + 1024 * 64) return; // 大きすぎるものは、読まない
+  try {
+    await request.arrayBuffer();
+  } catch {
+    // 途中で切れていても、気にしない
+  }
+}
+
 // 処理が、決めた時間より長くかかったときに、エラーにする。
 // （サーバーが返事をしないまま待たせると、iPhone のショートカットが「ネットワーク接続エラー」になってしまうため、
 //   時間内に終わらなければ、読み取りをあきらめて、「確認待ち」として返す）
@@ -105,6 +119,7 @@ export async function POST(request: Request) {
       `ショートカット受信: ${request.headers.get('content-length') ?? '?'} bytes / ${(request.headers.get('content-type') ?? '').split(';')[0]}${owner ? '' : '（トークンが正しくありません）'}`
     );
     if (!owner) {
+      await drainBody(request);
       return NextResponse.json({ success: false, error: true, status: 'error', saved: false, message: 'トークンが正しくありません' }, { status: 401 });
     }
 

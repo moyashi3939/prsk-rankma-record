@@ -259,6 +259,14 @@ export default function ShortcutSettings() {
           </p>
           <ul className="list-disc pl-5 space-y-1 text-amber-200/90">
             <li>
+              <b>ヘッダの <code>Authorization</code> の値の綴りを、確かめてください。</b>
+              <code>Bearer</code>（b-e-a-r-e-r）が正しく、<code>Beater</code> などの書き間違いや、トークンの付け忘れがあると、サーバーが、画像を受け取る前に断るため、
+              「ネットワーク接続が切れました」と出ることがあります。
+            </li>
+            <li>
+              「本文を要求：フォーム」の <code>image</code> の行に、<b>値（変換されたイメージ）が入っているか</b>確かめてください（種類は「ファイル」にします）。
+            </li>
+            <li>
               <b>画面の右上に「VPN」と出ていませんか。</b>VPN をオフにして、もう一度試してください（大きな画像を送るとき、VPN で切れることがあります）。
             </li>
             <li>

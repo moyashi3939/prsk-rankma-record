@@ -311,29 +311,87 @@ export default function AnalyticsPage() {
             </Panel>
           </div>
 
-          {/* 判定 */}
-          <Panel title="🎹 判定の内訳" hint="総ノーツ数に対する、各判定の割合です（自分と相手の平均）">
-            <div className="space-y-3">
-              {([['自分', judge.me], ['相手', judge.opp]] as const).map(([who, j]) => (
-                <div key={who} className="space-y-1">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="font-bold text-slate-200">{who}</span>
-                    <span className="text-slate-400 font-mono">
-                      PERFECT {j.perf.toFixed(2)}% ／ BAD+MISS {(j.bad + j.miss).toFixed(2)}%
-                    </span>
-                  </div>
-                  <StackedBar segments={(Object.keys(JUDGE_COLORS) as (keyof typeof JUDGE_COLORS)[]).map((k) => ({ label: JUDGE_LABELS[k], value: j[k], color: JUDGE_COLORS[k] }))} />
+          {/* 判定（PERFECT を除く） */}
+          <Panel title="🎹 判定の内訳（PERFECT を除く）" hint="PERFECT が大半を占めるため、GREAT・GOOD・BAD・MISS だけを比べます（1000ノーツあたりの数）">
+            {(() => {
+              const KEYS = ['great', 'good', 'bad', 'miss'] as const;
+              const perThousand = (v: number) => v * 10; // 割合(%) → 1000ノーツあたりの数
+              const noPerfect = (j: typeof judge.me) => KEYS.reduce((a, k) => a + j[k], 0);
+              const empty = noPerfect(judge.me) === 0 && noPerfect(judge.opp) === 0;
+
+              return (
+                <div className="space-y-4">
+                  <p className="text-[11px] text-slate-400">
+                    PERFECT の割合：自分 <b className="text-slate-200 font-mono">{judge.me.perf.toFixed(2)}%</b> ／ 相手{' '}
+                    <b className="text-slate-200 font-mono">{judge.opp.perf.toFixed(2)}%</b>
+                  </p>
+
+                  {empty ? (
+                    <p className="text-[11px] text-slate-500">PERFECT 以外の判定は、ありません（全部 PERFECT です）。</p>
+                  ) : (
+                    <>
+                      {/* 判定ごとに、自分と相手を比べる */}
+                      <div className="space-y-3">
+                        {KEYS.map((k) => {
+                          const me = perThousand(judge.me[k]);
+                          const opp = perThousand(judge.opp[k]);
+                          const max = Math.max(me, opp, 0.0001);
+                          const worse = me > opp * 1.3 && me - opp > 0.2; // 自分のほうが、はっきり多い
+                          return (
+                            <div key={k} className="space-y-1">
+                              <div className="flex justify-between text-[11px]">
+                                <span className="font-bold" style={{ color: JUDGE_COLORS[k] }}>
+                                  {JUDGE_LABELS[k]}
+                                </span>
+                                <span className="font-mono text-slate-400">
+                                  自分 {me.toFixed(2)} ／ 相手 {opp.toFixed(2)}
+                                  {worse && <span className="text-pink-300"> ⚠️ 相手より多め</span>}
+                                </span>
+                              </div>
+                              <div className="space-y-1">
+                                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full bg-cyan-400" style={{ width: `${(me / max) * 100}%` }} />
+                                </div>
+                                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full bg-pink-400" style={{ width: `${(opp / max) * 100}%` }} />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div className="flex gap-4 text-[10px] text-slate-400">
+                          <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-cyan-400" />自分</span>
+                          <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-pink-400" />相手</span>
+                          <span>（判定ごとに、多いほうを 100% として並べています）</span>
+                        </div>
+                      </div>
+
+                      {/* PERFECT 以外の中での、割合 */}
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold text-slate-300">PERFECT 以外の判定の、割合</p>
+                        {([['自分', judge.me], ['相手', judge.opp]] as const).map(([who, j]) => (
+                          <div key={who} className="space-y-1">
+                            <div className="flex justify-between text-[11px]">
+                              <span className="text-slate-200">{who}</span>
+                              <span className="text-slate-500 font-mono">PERFECT 以外 1000ノーツあたり {perThousand(noPerfect(j)).toFixed(2)}</span>
+                            </div>
+                            <StackedBar segments={KEYS.map((k) => ({ label: JUDGE_LABELS[k], value: j[k], color: JUDGE_COLORS[k] }))} />
+                          </div>
+                        ))}
+                        <div className="flex flex-wrap gap-3 text-[10px] text-slate-400">
+                          {KEYS.map((k) => (
+                            <span key={k} className="flex items-center gap-1">
+                              <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: JUDGE_COLORS[k] }} />
+                              {JUDGE_LABELS[k]}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
-              ))}
-              <div className="flex flex-wrap gap-3 text-[10px] text-slate-400">
-                {(Object.keys(JUDGE_COLORS) as (keyof typeof JUDGE_COLORS)[]).map((k) => (
-                  <span key={k} className="flex items-center gap-1">
-                    <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: JUDGE_COLORS[k] }} />
-                    {JUDGE_LABELS[k]}
-                  </span>
-                ))}
-              </div>
-            </div>
+              );
+            })()}
           </Panel>
 
           {/* 曲 */}

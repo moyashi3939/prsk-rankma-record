@@ -18,13 +18,20 @@ export function hashToken(token: string): string {
 
 // リクエストの「Authorization: Bearer <トークン>」を調べて、持ち主（アカウントのメールアドレス）を返す。
 // 正しいトークンでなければ null。使ったときに最終使用日時も更新する。
-export async function ownerFromBearer(request: Request): Promise<string | null> {
-  const header = request.headers.get('authorization') || '';
-  const match = /^Bearer\s+(\S+)$/i.exec(header);
-  if (!match) return null;
+// Authorization ヘッダから、トークンを取り出す。
+// 「Bearer トークン」が正しい書き方だが、ショートカットで、手で入力するときの書き間違い（Beater など）や、
+// 「Bearer」を付け忘れたとき（トークンだけ）でも、トークン（prsk_ で始まる文字列）が分かれば、受け付ける。
+// （トークンそのものが、推測できない長い文字列なので、前に付く単語は、安全性に関係しない）
+export function extractToken(header: string | null | undefined): string | null {
+  if (!header) return null;
+  const match = new RegExp(`(?:^|\\s)(${TOKEN_PREFIX}\\S+)\\s*$`).exec(header.trim());
+  if (!match || match[1].length > 200) return null;
+  return match[1];
+}
 
-  const token = match[1];
-  if (!token.startsWith(TOKEN_PREFIX) || token.length > 200) return null;
+export async function ownerFromBearer(request: Request): Promise<string | null> {
+  const token = extractToken(request.headers.get('authorization'));
+  if (!token) return null;
 
   await ensureShortcutTables();
   const res = await query(
