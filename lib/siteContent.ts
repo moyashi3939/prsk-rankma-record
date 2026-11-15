@@ -28,6 +28,14 @@ export interface UpdateEntry {
 
 export const UPDATES: UpdateEntry[] = [
   {
+    date: '2026-11-12',
+    title: '分析の更新',
+    items: [
+      '分析の項目を増やしました。',
+      '分析の表示方法を改善しました。',
+    ],
+  },
+  {
     date: '2026-11-1',
     title: 'iOSショートカットを修正しました。',
     items: [
